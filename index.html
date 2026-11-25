@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Antarctic Warfare</title>
+<meta name="description" content="Whimsical 3D faction warfare on the ice. Penguins, Seals and Orcas battle for Antarctica.">
+<meta name="theme-color" content="#1c6fd1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="overlay2d"></canvas>
+
+<div id="loading"><div class="logo"><span>ANTARCTIC</span><b>WARFARE</b></div><div class="bar"><i></i></div><p id="loadmsg">Carving glaciers…</p></div>
+
+<!-- HUD -->
+<div id="hud" hidden>
+  <div id="touchzone"></div>
+  <div id="vignette"></div>
+  <div id="topbar"></div>
+  <div id="objective"></div>
+  <div id="feed"></div>
+  <div id="toasts"></div>
+  <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
+  <div id="deadmsg" hidden></div>
+  <div id="prompt" hidden></div>
+  <div id="mini"><canvas id="minimap" width="150" height="150"></canvas></div>
+  <div id="status">
+    <div class="name" id="hudName"></div>
+    <div class="hp"><i id="hpFill"></i><span id="hpText"></span></div>
+  </div>
+  <div id="weapon">
+    <div id="wName"></div><div id="wAmmo"></div>
+    <div id="special"><span id="spIcon"></span><i id="spFill"></i></div>
+  </div>
+  <div id="coinsHud"></div>
+  <div id="stick"><div id="nub"></div></div>
+  <div id="touchbtns">
+    <button id="btnFire" class="tb big">●</button>
+    <button id="btnAds" class="tb">◎</button>
+    <button id="btnJump" class="tb">⤒</button>
+    <button id="btnSwap" class="tb">⇄</button>
+    <button id="btnSpecial" class="tb">★</button>
+    <button id="btnReload" class="tb">↻</button>
+    <button id="btnUse" class="tb wide">USE</button>
+  </div>
+  <button id="btnPause" class="tb sm">Ⅱ</button>
+  <button id="btnMap" class="tb sm">🗺</button>
+</div>
+
+<div id="ui"></div>
+<div id="rotate">Rotate your device to landscape for the best view 🐧</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

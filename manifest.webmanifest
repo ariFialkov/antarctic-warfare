@@ -1,0 +1,16 @@
+{
+  "name": "Antarctic Warfare",
+  "short_name": "Antarctic War",
+  "description": "Whimsical 3D faction warfare on the ice.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#2f8be6",
+  "theme_color": "#1c6fd1",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -4,7 +4,9 @@ A whimsical 3D third-person shooter about warring factions of Antarctic animals,
 
 No build step: it is a static site (vanilla ES modules + a vendored copy of three.js). All art is generated procedurally at load time.
 
-## Run
+**Play it:** https://arifialkov.github.io/antarctic-warfare/
+
+## Run locally
 
 ```bash
 python3 -m http.server 8080

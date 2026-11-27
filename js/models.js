@@ -1,6 +1,6 @@
 // Procedural animal soldiers, weapons and vehicles (all baked from primitives).
 import * as THREE from '../vendor/three.module.min.js';
-import { Kit, bakedMat } from './world.js';
+import { Kit, bakedMat } from './kit.js';
 import { FACTIONS, WEAPONS } from './data.js';
 
 const cache = {};

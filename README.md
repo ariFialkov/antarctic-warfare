@@ -19,7 +19,10 @@ Then open `http://localhost:8080`. To install as an app, host it over HTTPS (any
 | File | What it does |
 | --- | --- |
 | `js/data.js` | Factions, classes, weapons, map locations, Armoury (codex) text, bot names |
-| `js/world.js` | Antarctica terrain from the planning-map outline, ice shelves, mountains, ocean, sky, settlements and landmarks, collision |
+| `js/world.js` | Antarctica terrain from the planning-map outline: ice shelves, mountains, glaciers, rifts, crevasse fields, lakes, craters, pack ice, roads, ocean, sky, collision |
+| `js/towns.js` | Settlements: faction architecture, landmarks, street furniture, harbours, perimeter walls |
+| `js/scatter.js` | Wilderness dressing (wrecks, camps, huts, icebergs, road furniture), baked per map sector |
+| `js/kit.js` | Bakes many primitives into single vertex-coloured meshes |
 | `js/models.js` | Procedural animals, weapons and vehicles |
 | `js/game.js` | Renderer, characters, combat, bot AI, vehicles, camera |
 | `js/modes.js` | Open World, Skirmish, Battle Royale and the outcome ("fate") system |

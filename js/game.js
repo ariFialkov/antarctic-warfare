@@ -9,6 +9,7 @@ const V = () => new THREE.Vector3();
 const _a = V(), _b = V(), _c = V(), _n = V(), _d = new THREE.Object3D(), _col = new THREE.Color(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
 const angDiff = (a, b) => { let d = (a - b) % 6.2832; if (d > Math.PI) d -= 6.2832; if (d < -Math.PI) d += 6.2832; return d; };
 const CLIMB = 0.95, BODY = { seals: 1.3, walrus: 1.45, orcas: 2.1 }; // steepest walkable grade; body scale per faction
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 const PREF = { melee: 0, shotgun: 11, flame: 9, auto: 26, semi: 32, sniper: 75, launcher: 38 };
 const VEH = { waddle: { max: 30, acc: 16, turn: 1.9, r: 1.3, cam: 7.5, resist: 0.8, seat: 0.75 }, gentoo: { max: 13, acc: 7, turn: 1.1, r: 2.6, cam: 11, resist: 0.3, seat: -9 }, manta: { max: 26, acc: 12, turn: 1.6, r: 1.8, cam: 8, resist: 0.7, seat: 0.5 } };
 
@@ -25,7 +26,7 @@ export class Game {
     this.camYaw = 0; this.camPitch = 0; this.shake = 0; this.aim = V(); this.nameIdx = Math.floor(Math.random() * BOT_NAMES.length);
     const mk = (n, mat) => { const m = new THREE.InstancedMesh(new THREE.SphereGeometry(0.5, 8, 6), mat, n); m.frustumCulled = false; m.count = 0; m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3); this.scene.add(m); return m; };
     this.projMesh = mk(260, new THREE.MeshBasicMaterial({ fog: false }));
-    this.outMesh = mk(260, new THREE.MeshBasicMaterial({ color: 0x0f2a52, side: THREE.BackSide, fog: false })); this.trailMesh = mk(260, new THREE.MeshBasicMaterial({ color: 0x1f6fd6, transparent: true, opacity: 0.55, depthWrite: false, fog: false })); this.puffMesh = mk(420, new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.9 }));
+    this.outMesh = mk(260, new THREE.MeshBasicMaterial({ color: 0x0f2a52, side: THREE.BackSide, fog: false })); this.trailMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(0.5, 1, 6, 1, true).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5f86b8, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide }), 260); this.trailMesh.frustumCulled = false; this.trailMesh.count = 0; this.scene.add(this.trailMesh); this.ghosts = []; this.puffMesh = mk(420, new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.9 }));
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 6, 40), new THREE.MeshBasicMaterial({ color: 0xff3a4a })); this.ring.rotation.x = Math.PI / 2; this.ring.visible = false; this.scene.add(this.ring);
     this.zoneMesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 160, 64, 1, true), new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false })); this.zoneMesh.visible = false; this.scene.add(this.zoneMesh);
     this.beacon = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 300, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide, fog: false })); this.beacon.visible = false; this.scene.add(this.beacon);
@@ -38,7 +39,7 @@ export class Game {
   // ---------- lifecycle ----------
   clear() {
     for (const c of this.chars) this.scene.remove(c.model.root); for (const v of this.vehicles) this.scene.remove(v.model.root);
-    this.chars = []; this.vehicles = []; this.projs = []; this.puffs = []; this.strikes = []; this.player = null; this.zoneMesh.visible = false; this.beacon.visible = false; this.ring.visible = false;
+    this.chars = []; this.vehicles = []; this.projs = []; this.ghosts = []; this.puffs = []; this.strikes = []; this.player = null; this.zoneMesh.visible = false; this.beacon.visible = false; this.ring.visible = false;
   }
   start(mode) { this.clear(); this.mode = mode; mode.game = this; this.time = 0; mode.start(); this.input.setEnabled(true); this.ui.showHud(true); }
   stop() { if (this.mode && this.mode.dispose) this.mode.dispose(); this.clear(); this.mode = null; this.input.setEnabled(false); this.ui.showHud(false); }
@@ -344,18 +345,27 @@ export class Game {
       if (!hit && (w.pointBlocked(p.x, p.y, p.z) || w.pointBlocked(ox + sx * 0.5, oy + sy * 0.5, oz + sz * 0.5) || p.y < -0.3)) done = true;
       if (hit || done) {
         if (pr.blast) this.explode(p, pr.blast, pr.dmg, pr.owner); else { if (hit) this.damage(hit, pr.dmg, pr.owner); if (!pr.flame || hit) this.puff(p.x, p.y, p.z, pr.flame ? 1 : 4, pr.col, 1.5, 0.3); }
+        if (!pr.flame && pr.tl > 0.5) this.ghosts.push({ p: p.clone(), v: pr.v.clone(), sp: pr.v.length() || 1, tl: pr.tl, wd: pr.size * 0.85, t: 0.22 });
         this.projs.splice(i, 1); continue;
       }
       if (pr.flame) pr.size += dt * 2.2;
+      pr.trav = (pr.trav || 0) + Math.sqrt(sl2);
       _d.position.copy(p); const sp = pr.v.length(); _d.scale.set(pr.size, pr.size, pr.size + (pr.flame ? 0 : sp * 0.006)); _d.lookAt(p.x + pr.v.x, p.y + pr.v.y, p.z + pr.v.z); _d.updateMatrix();
       this.projMesh.setMatrixAt(n, _d.matrix); this.projMesh.setColorAt(n, _col.set(pr.col)); n++;
       if (!pr.flame) { // dark rim + blue streak so white snowballs read against white snow
         const st = pr.size + sp * 0.006; _d.scale.set(pr.size * 1.5 + 0.05, pr.size * 1.5 + 0.05, st * 1.12 + 0.08); _d.updateMatrix(); this.outMesh.setMatrixAt(n2, _d.matrix);
-        pr.trav = (pr.trav || 0) + sp * dt; const tl = Math.max(0.001, Math.min(sp * 0.05 + pr.size * 2, 6, pr.trav - pr.size)); // never reaches back past the muzzle _d.position.addScaledVector(pr.v, -tl * 0.5 / sp); _d.scale.set(pr.size * 0.75, pr.size * 0.75, tl); _d.updateMatrix(); this.trailMesh.setMatrixAt(n2, _d.matrix); n2++;
+        const tl = Math.min(sp * 0.2, 34, pr.trav - pr.size * 0.5), wd = pr.size * 0.85; this.trail(n2, p, pr.v, sp, tl, wd); pr.tl = tl; n2++;
       }
     }
+    // fading remnants of trails whose snowball has just landed
+    for (let i = this.ghosts.length - 1; i >= 0 && n2 < 255; i--) { const gh = this.ghosts[i]; gh.t -= dt; if (gh.t <= 0) { this.ghosts.splice(i, 1); continue; } const k = gh.t / 0.22; this.outMesh.setMatrixAt(n2, ZERO); this.trail(n2, gh.p, gh.v, gh.sp, gh.tl * k, gh.wd * k); n2++; }
     this.outMesh.count = this.trailMesh.count = n2; this.outMesh.instanceMatrix.needsUpdate = true; this.trailMesh.instanceMatrix.needsUpdate = true;
     this.projMesh.count = n; this.projMesh.instanceMatrix.needsUpdate = true; this.projMesh.instanceColor.needsUpdate = true;
+  }
+  // tapered vapour streak: wide at the snowball, vanishing to a point `len` metres back along its path
+  trail(i, head, v, sp, len, wd) {
+    if (len < 0.05) { this.trailMesh.setMatrixAt(i, ZERO); return; }
+    _d.position.copy(head).addScaledVector(v, -len * 0.5 / sp); _d.scale.set(wd, wd, len); _d.lookAt(_d.position.x + v.x, _d.position.y + v.y, _d.position.z + v.z); _d.updateMatrix(); this.trailMesh.setMatrixAt(i, _d.matrix);
   }
   updateStrikes(dt) {
     this.ring.visible = false;

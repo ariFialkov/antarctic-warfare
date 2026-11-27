@@ -1,45 +1,150 @@
-// Procedural weapons and vehicles (baked from primitives). Animals live in animals.js.
+// Weapons and drivable vehicles, built from the geometry kit with separate moving parts.
 import * as THREE from '../vendor/three.module.min.js';
-import { Kit, bakedMat } from './kit.js';
+import { Kit, bakedMat, wheel, gunBarrel } from './kit.js';
 import { WEAPONS } from './data.js';
 
 const cache = {};
 const geo = (key, fn) => cache[key] || (cache[key] = (() => { const k = new Kit(); fn(k); return k.bake().geometry; })());
 const mesh = (g, shadow = true) => { const m = new THREE.Mesh(g, bakedMat); m.castShadow = shadow; return m; };
+const part = (key, fn, shadow = false) => mesh(geo(key, fn), shadow);
+const damp = (a, b, k, dt) => a + (b - a) * (1 - Math.exp(-k * dt));
+const BODY = 0xe8eef6, DARK = 0x38404f, BLACK = 0x1c2030, STEEL = 0x8a96a8, WOOD = 0x8a5a36, WOODD = 0x5e3b22, GLASS = 0x8fd0f5, GOLD = 0xf2c230, RED = 0xd9433b, WHITE = 0xffffff, ORANGE = 0xff8a1f, SNOW = 0xf4f9ff;
+const X = Math.PI / 2;
 
-const STEEL = 0x6c7a8c, BLACK = 0x1e2333, WHITE = 0xffffff, ORANGE = 0xff9a2a;
-
-function weaponGeo(id) {
-  const w = WEAPONS[id];
-  return geo('w_' + id, k => {
-    const body = 0xe8eef6, dark = 0x38404f, c = w.col;
-    switch (w.type) {
-      case 'semi': k.p('box', body, 0, 0, 0.15, 0.09, 0.13, 0.6).p('cyl', dark, 0, 0.02, 0.6, 0.05, 0.4, 0.05, Math.PI / 2).p('box', dark, 0, -0.14, 0.1, 0.07, 0.2, 0.1).p('box', c === 0xffffff ? 0x4aa8e8 : c, 0, -0.03, -0.25, 0.08, 0.14, 0.3).p('sph', 0x4aa8e8, 0, 0.11, 0.1, 0.14); break;
-      case 'auto': k.p('box', body, 0, 0, 0.2, 0.1, 0.15, 0.8).p('cyl', dark, 0, 0.02, 0.8, 0.06, 0.5, 0.06, Math.PI / 2).p('cyl', c === 0xffffff ? 0x4aa8e8 : c, 0, -0.16, 0.2, 0.26, 0.1, 0.26, 0, 0, Math.PI / 2).p('box', dark, 0, -0.04, -0.32, 0.08, 0.16, 0.3).p('box', dark, 0, 0.11, 0.2, 0.03, 0.05, 0.3); break;
-      case 'shotgun': k.p('box', 0x8a5a36, 0, 0, 0, 0.09, 0.13, 0.6).p('cyl', dark, 0.035, 0.03, 0.55, 0.06, 0.6, 0.06, Math.PI / 2).p('cyl', dark, -0.035, 0.03, 0.55, 0.06, 0.6, 0.06, Math.PI / 2).p('box', c, 0, -0.05, 0.4, 0.12, 0.08, 0.25); break;
-      case 'sniper': k.p('box', body, 0, 0, 0.1, 0.08, 0.12, 0.8).p('cyl', c, 0, 0.02, 0.95, 0.04, 0.95, 0.04, Math.PI / 2).p('cyl', dark, 0, 0.13, 0.15, 0.07, 0.36, 0.07, Math.PI / 2).p('box', dark, 0, -0.04, -0.42, 0.07, 0.16, 0.3).p('cone', c, 0, 0.02, 1.5, 0.07, 0.2, 0.07, Math.PI / 2); break;
-      case 'launcher': k.p('cyl', dark, 0, 0.04, 0.25, 0.2, 1.0, 0.2, Math.PI / 2).p('cyl', c, 0, 0.04, 0.75, 0.24, 0.12, 0.24, Math.PI / 2).p('box', body, 0, -0.14, 0.1, 0.07, 0.2, 0.1).p('box', body, 0, -0.02, -0.3, 0.08, 0.14, 0.2); break;
-      case 'flame': k.p('cyl', c, 0, 0, -0.1, 0.22, 0.5, 0.22, Math.PI / 2).p('cyl', dark, 0, 0.02, 0.45, 0.07, 0.7, 0.07, Math.PI / 2).p('cone', 0xffffff, 0, 0.02, 0.85, 0.16, 0.16, 0.16, -Math.PI / 2).p('box', dark, 0, -0.16, 0.2, 0.07, 0.2, 0.1); break;
-      default: k.p('box', dark, 0, 0, 0, 0.07, 0.07, 0.24).p('cone4', c, 0, 0, 0.5, 0.12, 0.8, 0.04, Math.PI / 2); if (id === 'brass') k.p('sph', c, 0, 0, 0.6, 0.5, 0.14, 0.4);
-    }
-  });
+// ---------------------------------------------------------------- handheld weapons (barrel along +z)
+const grip = (k, z = -0.1, c = DARK) => k.p('rbox', c, 0, -0.13, z, 0.06, 0.2, 0.09, 0.25).p('box', DARK, 0, -0.085, z + 0.1, 0.02, 0.02, 0.13).p('box', DARK, 0, -0.05, z + 0.16, 0.02, 0.08, 0.02).p('box', BLACK, 0, -0.045, z + 0.07, 0.014, 0.06, 0.02, 0.3);
+const stock = (k, z, len, c = DARK) => k.p('rbox', c, 0, -0.02, z - len / 2, 0.06, 0.09, len).p('rbox', c, 0, -0.05, z - len, 0.07, 0.17, 0.05).p('box', BLACK, 0, -0.05, z - len - 0.03, 0.065, 0.16, 0.02);
+const sights = (k, z0, z1, y) => k.p('box', BLACK, 0, y, z0, 0.04, 0.035, 0.03).p('box', BLACK, 0.014, y + 0.025, z0, 0.008, 0.03, 0.02).p('box', BLACK, -0.014, y + 0.025, z0, 0.008, 0.03, 0.02).p('box', BLACK, 0, y, z1, 0.01, 0.05, 0.02);
+const hopper = (k, z, s) => { k.p('cyl8', DARK, 0, 0.09, z, 0.07, 0.05, 0.07).p('domeL', 0xbfe6ff, 0, 0.11, z, 0.26 * s, 0.26 * s, 0.34 * s); for (let i = 0; i < 5; i++) k.p('sphL', WHITE, Math.cos(i * 1.3) * 0.05 * s, 0.13 + (i % 2) * 0.04 * s, z + Math.sin(i * 1.3) * 0.08 * s, 0.07 * s); };
+const scope = (k, z, len, y = 0.13) => k.p('tube', BLACK, 0, y, z, 0.07, len, 0.07, X).p('tube', BLACK, 0, y, z + len / 2, 0.095, 0.08, 0.095, X).p('cyl8', 0x5ce8ff, 0, y, z + len / 2 + 0.02, 0.07, 0.01, 0.07, X).p('box', BLACK, 0, y - 0.055, z - 0.08, 0.03, 0.05, 0.04).p('box', BLACK, 0, y - 0.055, z + 0.1, 0.03, 0.05, 0.04).p('cyl6', BLACK, 0, y + 0.05, z, 0.03, 0.03, 0.03);
+const bipod = (k, z) => k.p('cyl6', DARK, 0.03, -0.09, z + 0.12, 0.016, 0.3, 0.016, 1.2, 0, 0.1).p('cyl6', DARK, -0.03, -0.09, z + 0.12, 0.016, 0.3, 0.016, 1.2, 0, -0.1);
+const WPN = {
+  b22: { muzzle: 0.86, body(k, c) { k.p('rbox', BODY, 0, 0, 0.1, 0.09, 0.14, 0.5).p('rbox', DARK, 0, 0.005, 0.42, 0.075, 0.1, 0.22).p('tube', DARK, 0, 0.02, 0.62, 0.07, 0.46, 0.07, X).p('tube', BLACK, 0, 0.02, 0.83, 0.09, 0.06, 0.09, X).p('cyl8', 0x4aa8e8, 0, -0.075, 0.42, 0.075, 0.34, 0.075, X).p('sphL', 0x4aa8e8, 0, -0.075, 0.6, 0.075).p('cyl6', STEEL, 0, -0.075, 0.23, 0.04, 0.05, 0.04, X); grip(k); stock(k, -0.15, 0.3); sights(k, -0.08, 0.5, 0.085); hopper(k, 0.12, 0.8); },
+    slide: { travel: 0.07, draw: k => k.p('cyl6', STEEL, 0.06, 0.03, 0.02, 0.03, 0.05, 0.03, 0, 0, X).p('sphL', BLACK, 0.09, 0.03, 0.02, 0.04) } },
+  b350: { muzzle: 1.12, body(k) { k.p('rbox', BODY, 0, 0, 0.15, 0.11, 0.16, 0.66).p('rbox', DARK, 0, 0.1, 0.12, 0.04, 0.04, 0.34).p('box', DARK, 0, 0.07, -0.02, 0.03, 0.06, 0.03).p('box', DARK, 0, 0.07, 0.26, 0.03, 0.06, 0.03).p('tube', DARK, 0, 0.02, 0.78, 0.085, 0.62, 0.085, X); for (let i = 0; i < 5; i++) k.p('torus', BLACK, 0, 0.02, 0.56 + i * 0.09, 0.13, 0.13, 0.5); k.p('bell', BLACK, 0, 0.02, 1.08, 0.11, 0.1, 0.11, X).p('cyl8', 0x4aa8e8, 0, -0.09, 0.5, 0.085, 0.4, 0.085, X); grip(k, -0.12); stock(k, -0.18, 0.32); bipod(k, 0.78); sights(k, -0.1, 0.46, 0.095); },
+    slide: { travel: 0.1, draw: k => k.p('box', STEEL, 0.065, 0.02, 0.1, 0.02, 0.04, 0.1).p('cyl6', BLACK, 0.09, 0.02, 0.12, 0.03, 0.05, 0.03, 0, 0, X) },
+    spin: { at: [-0.13, 0, 0.16], draw: k => { k.p('cyl20', 0x4aa8e8, 0, 0, 0, 0.3, 0.1, 0.3, 0, 0, X).p('cyl8', BODY, -0.055, 0, 0, 0.12, 0.02, 0.12, 0, 0, X); for (let i = 0; i < 6; i++) k.p('sphL', WHITE, -0.056, Math.sin(i * 1.047) * 0.1, Math.cos(i * 1.047) * 0.1, 0.06, 0.02, 0.06); } } },
+  flurry: { muzzle: 0.8, body(k, c) { k.p('rbox', DARK, 0, 0, -0.02, 0.09, 0.14, 0.3).p('tube', DARK, 0, 0.03, 0.5, 0.22, 0.56, 0.22, X).p('tube', c, 0, 0.03, 0.76, 0.25, 0.06, 0.25, X).p('rbox', BODY, 0, -0.08, 0.36, 0.07, 0.07, 0.3).p('box', BLACK, 0, 0.16, 0.3, 0.012, 0.1, 0.02, -0.5); grip(k, -0.12); stock(k, -0.16, 0.26, BODY); },
+    spin: { at: [0, 0.03, 0.12], draw: k => { k.p('cyl8', STEEL, 0, 0, 0, 0.26, 0.2, 0.26, X); for (let i = 0; i < 5; i++) k.p('cyl8', c0(0xbfe6ff), Math.cos(i * 1.257) * 0.075, Math.sin(i * 1.257) * 0.075, 0.1, 0.085, 0.02, 0.085, X); } } },
+  icico: { muzzle: 1.46, body(k, c) { k.p('rbox', BODY, 0, 0, 0.1, 0.09, 0.13, 0.62).p('box', DARK, 0.045, 0.02, 0.86, 0.022, 0.05, 1.04).p('box', DARK, -0.045, 0.02, 0.86, 0.022, 0.05, 1.04).p('cone6', 0x9fe8ff, 0, 0.02, 1.2, 0.045, 0.52, 0.045, X); for (let i = 0; i < 6; i++) k.p('torus', i % 2 ? 0x5ce8ff : 0x2f8be6, 0, 0.02, 0.46 + i * 0.17, 0.17, 0.15, 0.7); k.p('rbox', DARK, 0, -0.11, 0.2, 0.06, 0.12, 0.12).p('rbox', BODY, 0, 0.055, -0.3, 0.05, 0.04, 0.2); grip(k, -0.1); stock(k, -0.2, 0.34); bipod(k, 0.6); scope(k, 0.12, 0.36); },
+    slide: { travel: 0.12, bolt: true, draw: k => k.p('cyl6', STEEL, 0.03, 0.03, -0.02, 0.035, 0.12, 0.035, X).p('cyl6', STEEL, 0.075, 0.015, -0.07, 0.022, 0.07, 0.022, 0, 0, 1.1).p('sphL', BLACK, 0.105, 0, -0.07, 0.045) } },
+  krill: { muzzle: 0.5, body(k, c) { k.p('rbox2', BODY, 0, 0, 0.06, 0.08, 0.15, 0.4).p('tube', DARK, 0, 0.02, 0.36, 0.06, 0.26, 0.06, X).p('tube', BLACK, 0, 0.02, 0.47, 0.085, 0.06, 0.085, X).p('cyl6', DARK, 0, 0.0, -0.2, 0.014, 0.2, 0.014, X).p('box', DARK, 0, -0.03, -0.3, 0.05, 0.1, 0.02); grip(k, -0.06); sights(k, -0.08, 0.22, 0.09); },
+    slide: { travel: 0.06, draw: k => k.p('box', STEEL, 0, 0.085, 0.02, 0.05, 0.03, 0.14) }, mag: { draw: k => k.p('rbox', c0(0xff9e8a), -0.085, -0.01, 0.1, 0.1, 0.05, 0.07).p('box', DARK, -0.14, -0.01, 0.1, 0.012, 0.055, 0.075) } },
+  freon: { muzzle: 0.95, body(k, c) { k.p('cyl20', c, 0, -0.02, -0.12, 0.2, 0.42, 0.2, X).p('sph', c, 0, -0.02, 0.09, 0.2).p('sph', c, 0, -0.02, -0.33, 0.2).p('torus', STEEL, 0, -0.02, -0.12, 0.42, 0.42, 0.6).p('cyl8', WHITE, 0.08, 0.06, -0.1, 0.07, 0.02, 0.07, 0, 0, -0.8).p('box', RED, 0.09, 0.07, -0.1, 0.008, 0.03, 0.008, 0, 0, -0.8).p('tube', DARK, 0, 0.03, 0.5, 0.07, 0.7, 0.07, X).p('bell', WHITE, 0, 0.03, 0.9, 0.17, 0.14, 0.17, X).p('torus', DARK, 0.05, 0.02, 0.2, 0.2, 0.2, 0.5, 0, X).p('cyl6', GOLD, 0, -0.03, 0.82, 0.02, 0.1, 0.02, X); grip(k, 0.1); grip(k, 0.42); } },
+  icepick: { body(k, c) { k.p('cyl8', WOOD, 0, 0, 0.1, 0.045, 0.5, 0.045, X).p('torus', BLACK, 0, 0, -0.1, 0.08, 0.08, 1).p('rbox', STEEL, 0, 0, 0.36, 0.05, 0.07, 0.07).p('cone6', c, 0, 0.14, 0.4, 0.05, 0.34, 0.03, 0.5).p('cone6', c, 0, 0.3, 0.52, 0.03, 0.16, 0.02, 1.2).p('box', STEEL, 0, -0.07, 0.36, 0.014, 0.1, 0.1); } },
+  amph12: { muzzle: 0.86, body(k, c) { k.p('rbox', WOODD, 0, 0, 0.02, 0.085, 0.13, 0.36).p('tube', DARK, 0.036, 0.03, 0.52, 0.07, 0.66, 0.07, X).p('tube', DARK, -0.036, 0.03, 0.52, 0.07, 0.66, 0.07, X).p('box', DARK, 0, 0.03, 0.5, 0.02, 0.03, 0.6).p('torus', 0x23b8a8, 0, 0.03, 0.82, 0.19, 0.11, 0.6).p('sphL', GOLD, 0, 0.07, 0.83, 0.02); for (let i = 0; i < 4; i++) k.p('cyl8', RED, 0.055, 0.02, -0.08 + i * 0.05, 0.035, 0.07, 0.035).p('cyl8', GOLD, 0.055, -0.02, -0.08 + i * 0.05, 0.037, 0.02, 0.037); grip(k, -0.1, WOODD); stock(k, -0.14, 0.3, WOOD); },
+    slide: { travel: 0.12, pump: true, draw: k => { k.p('rbox2', 0x23b8a8, 0, -0.04, 0.42, 0.12, 0.08, 0.24); for (let i = 0; i < 4; i++) k.p('box', 0x1a8a7e, 0, -0.04, 0.34 + i * 0.055, 0.125, 0.085, 0.012); } } },
+  sardine: { muzzle: 0.62, body(k, c) { k.p('rbox2', 0xc8d8e8, 0, 0.01, 0.06, 0.1, 0.13, 0.46).p('box', 0xa9bccd, 0, 0.078, 0.06, 0.085, 0.006, 0.4).p('torus', GOLD, 0.02, 0.1, -0.08, 0.06, 0.06, 0.6, X).p('box', GOLD, 0.02, 0.085, -0.02, 0.012, 0.012, 0.1).p('tube', DARK, 0, 0.02, 0.44, 0.09, 0.34, 0.09, X).p('tube', BLACK, 0, 0.02, 0.44, 0.055, 0.4, 0.055, X); for (let i = 0; i < 4; i++) k.p('torus', BLACK, 0, 0.02, 0.33 + i * 0.07, 0.19, 0.19, 0.4); k.p('cyl6', DARK, 0, 0.04, -0.3, 0.014, 0.3, 0.014, X).p('cyl6', DARK, 0, -0.06, -0.3, 0.014, 0.3, 0.014, X).p('box', DARK, 0, -0.01, -0.45, 0.04, 0.14, 0.02); grip(k, -0.08); },
+    slide: { travel: 0.07, draw: k => k.p('cyl6', STEEL, 0.07, 0.03, 0.0, 0.025, 0.05, 0.025, 0, 0, X) }, mag: { draw: k => k.p('rbox', DARK, 0, -0.2, 0.12, 0.045, 0.3, 0.07) } },
+  narwhal: { muzzle: 1.4, body(k, c) { k.p('rbox', WOOD, 0, 0, 0.08, 0.085, 0.12, 0.6).p('rbox', WOODD, 0, -0.035, 0.44, 0.07, 0.07, 0.3); for (let i = 0; i < 12; i++) k.p('cyl6', i % 2 ? 0xfff4d6 : 0xe9dcb8, 0, 0.02, 0.44 + i * 0.08, 0.085 - i * 0.004, 0.09, 0.085 - i * 0.004, X, 0, i * 0.5); k.p('cone6', 0xfff4d6, 0, 0.02, 1.4, 0.04, 0.1, 0.04, X).p('torus', GOLD, 0, 0.02, 0.4, 0.2, 0.2, 0.7); grip(k, -0.1, WOODD); stock(k, -0.2, 0.34, WOOD); scope(k, 0.1, 0.3); },
+    slide: { travel: 0.1, bolt: true, draw: k => k.p('cyl6', STEEL, 0.03, 0.03, -0.04, 0.03, 0.1, 0.03, X).p('sphL', GOLD, 0.085, 0.01, -0.08, 0.045).p('cyl6', STEEL, 0.06, 0.02, -0.08, 0.018, 0.06, 0.018, 0, 0, 1.2) } },
+  blubber: { muzzle: 1.16, body(k, c) { k.p('rbox', 0x6b7686, 0, 0, 0.08, 0.13, 0.17, 0.6).p('rbox', DARK, 0, 0.1, 0.05, 0.1, 0.03, 0.4).p('tube', DARK, 0, 0.02, 0.72, 0.1, 0.7, 0.1, X).p('tube', 0x6b7686, 0, 0.02, 0.6, 0.15, 0.36, 0.15, X).p('bell', GOLD, 0, 0.02, 1.08, 0.24, 0.2, 0.24, X).p('cyl6', DARK, 0.05, -0.02, -0.3, 0.02, 0.2, 0.02, X).p('cyl6', DARK, -0.05, -0.02, -0.3, 0.02, 0.2, 0.02, X).p('cyl8', WOOD, 0.05, -0.02, -0.42, 0.045, 0.1, 0.045).p('cyl8', WOOD, -0.05, -0.02, -0.42, 0.045, 0.1, 0.045); for (let i = 0; i < 5; i++) k.p('box', GOLD, -0.075 - i * 0.012, -0.03 - i * 0.02, 0.12, 0.02, 0.03, 0.09, 0, 0, 0.5); bipod(k, 0.7); grip(k, 0.0); },
+    slide: { travel: 0.1, draw: k => k.p('box', STEEL, 0.075, 0.03, 0.02, 0.02, 0.04, 0.12).p('sphL', BLACK, 0.1, 0.03, 0.06, 0.05) }, mag: { draw: k => k.p('rbox', 0x4a6a44, -0.17, -0.1, 0.12, 0.18, 0.18, 0.24).p('box', GOLD, -0.17, 0, 0.12, 0.1, 0.02, 0.18).p('box', DARK, -0.17, -0.1, 0.245, 0.1, 0.06, 0.01) } },
+  harpoon: { muzzle: 1.05, body(k, c) { k.p('tube', 0x4a5568, 0, 0.04, 0.3, 0.2, 0.95, 0.2, X).p('tube', DARK, 0, 0.04, -0.2, 0.26, 0.1, 0.26, X).p('tube', DARK, 0, 0.04, 0.76, 0.24, 0.06, 0.24, X).p('cyl6', STEEL, 0, 0.04, 0.84, 0.035, 0.3, 0.035, X).p('cone6', c, 0, 0.04, 1.05, 0.1, 0.2, 0.1, X).p('cone6', c, 0.05, 0.04, 0.95, 0.03, 0.12, 0.03, X - 0.5, 0, 0).p('cone6', c, -0.05, 0.04, 0.95, 0.03, 0.12, 0.03, X + 0.5).p('torus', 0xd9c49a, 0, -0.1, 0.5, 0.2, 0.2, 2, 0, X).p('torus', 0xd9c49a, 0.03, -0.1, 0.5, 0.16, 0.16, 2, 0, X).p('rbox', BLACK, 0, 0.17, 0.2, 0.03, 0.08, 0.14).p('cyl8', 0x5ce8ff, 0, 0.19, 0.275, 0.05, 0.01, 0.05, X); grip(k, 0.0); grip(k, 0.36); } },
+  clam: { body(k, c) { k.p('cyl8', WOODD, 0, 0, -0.02, 0.05, 0.24, 0.05, X).p('box', GOLD, 0, 0, 0.11, 0.14, 0.03, 0.03).p('sph', c, 0, 0, 0.36, 0.2, 0.035, 0.5); for (let i = -2; i <= 2; i++) k.p('box', 0xd9cfae, i * 0.035, 0.012, 0.36, 0.006, 0.02, 0.42 - Math.abs(i) * 0.06, 0, i * 0.1); } },
+  rain: { muzzle: 1.3, body(k, c) { k.p('rbox', DARK, 0, 0, 0.05, 0.15, 0.18, 0.62).p('rbox', STEEL, 0, 0.1, 0.02, 0.12, 0.03, 0.44).p('tube', 0x4a5568, 0, 0.02, 0.7, 0.16, 0.62, 0.16, X).p('tube', BLACK, 0, 0.02, 0.9, 0.09, 0.84, 0.09, X); for (let i = 0; i < 6; i++) k.p('torus', BLACK, 0, 0.02, 0.46 + i * 0.1, 0.33, 0.33, 0.35); k.p('cone', BLACK, 0, 0.02, 1.27, 0.14, 0.12, 0.14, -X).p('cyl6', DARK, 0.06, -0.01, -0.34, 0.022, 0.18, 0.022, X).p('cyl6', DARK, -0.06, -0.01, -0.34, 0.022, 0.18, 0.022, X).p('cyl8', c, 0.06, -0.01, -0.45, 0.05, 0.12, 0.05).p('cyl8', c, -0.06, -0.01, -0.45, 0.05, 0.12, 0.05).p('box', GOLD, 0, -0.01, -0.3, 0.05, 0.03, 0.03); for (let i = 0; i < 6; i++) k.p('box', GOLD, -0.09 - i * 0.012, 0.02 - i * 0.025, 0.1, 0.02, 0.03, 0.1, 0, 0, 0.5); },
+    slide: { travel: 0.12, draw: k => k.p('box', STEEL, 0.085, 0.03, 0.0, 0.02, 0.05, 0.16).p('cyl6', BLACK, 0.11, 0.03, 0.05, 0.03, 0.06, 0.03, 0, 0, X) }, mag: { draw: k => k.p('rbox', 0x4a6a44, -0.2, -0.15, 0.1, 0.2, 0.22, 0.28).p('box', GOLD, -0.2, -0.03, 0.1, 0.12, 0.02, 0.2) } },
+  sonar: { muzzle: 0.9, body(k, c) { k.p('rbox2', DARK, 0, 0, 0.1, 0.09, 0.14, 0.52).p('box', c, 0.047, 0.01, 0.1, 0.004, 0.04, 0.4).p('box', c, -0.047, 0.01, 0.1, 0.004, 0.04, 0.4).p('tube', BLACK, 0, 0.02, 0.55, 0.07, 0.4, 0.07, X); for (let i = 0; i < 4; i++) k.p('torus', i % 2 ? 0x5ce8ff : c, 0, 0.02, 0.62 + i * 0.08, 0.3 - i * 0.05, 0.3 - i * 0.05, 0.6); k.p('sphL', 0x5ce8ff, 0, 0.02, 0.9, 0.06).p('rbox', BLACK, 0, 0.11, 0.1, 0.035, 0.07, 0.18).p('cyl8', 0x5ce8ff, 0, 0.12, 0.195, 0.045, 0.01, 0.045, X); grip(k, -0.08); stock(k, -0.16, 0.26); },
+    slide: { travel: 0.06, draw: k => k.p('box', c0(0x5ce8ff), 0.05, 0.04, 0.0, 0.012, 0.03, 0.1) }, mag: { draw: k => k.p('rbox', BLACK, 0, -0.17, 0.14, 0.05, 0.22, 0.08, 0.15).p('box', c0(0x5ce8ff), 0.027, -0.17, 0.14, 0.004, 0.16, 0.02, 0.15) } },
+  riptide: { muzzle: 0.86, body(k, c) { k.p('tube', 0x4a5568, 0, 0.04, 0.38, 0.24, 0.84, 0.24, X).p('tube', BLACK, 0, 0.04, 0.78, 0.28, 0.07, 0.28, X).p('tube', c, 0, 0.04, 0.5, 0.26, 0.05, 0.26, X).p('cyl8', DARK, 0, 0.04, -0.07, 0.3, 0.06, 0.3, X).p('sphL', DARK, 0, 0.04, -0.1, 0.18).p('box', BLACK, 0.11, 0.14, 0.3, 0.02, 0.1, 0.03); for (let i = 0; i < 3; i++) k.p('cyl8', GOLD, -0.15, -0.03 + i * 0.07, 0.2, 0.07, 0.2, 0.07, X).p('cone6', BLACK, -0.15, -0.03 + i * 0.07, 0.33, 0.07, 0.07, 0.07, X); bipod(k, 0.5); grip(k, 0.02); grip(k, 0.3); } },
+  spout: { muzzle: 0.42, body(k, c) { k.p('rbox2', BODY, 0, 0, 0.08, 0.075, 0.12, 0.34).p('tube', DARK, 0, 0.02, 0.32, 0.055, 0.2, 0.055, X).p('cone6', c, 0, 0.02, 0.42, 0.05, 0.05, 0.05, X).p('sph', c, 0, 0.11, 0.02, 0.15, 0.13, 0.22).p('cyl6', DARK, 0, 0.19, 0.02, 0.05, 0.03, 0.05).p('box', GOLD, 0, 0.035, 0.26, 0.08, 0.02, 0.02); grip(k, -0.04); },
+    slide: { travel: 0.05, draw: k => k.p('rbox', STEEL, 0, 0.03, -0.1, 0.07, 0.07, 0.06) } },
+  brass: { body(k, c) { k.p('cyl8', DARK, 0, 0, 0.1, 0.07, 0.4, 0.07, X).p('sph', c, 0, 0, 0.5, 0.62, 0.12, 0.46).p('sph', c, 0.2, 0, 0.6, 0.34, 0.1, 0.3, 0, 0.5).p('sph', c, -0.2, 0, 0.6, 0.34, 0.1, 0.3, 0, -0.5); for (let i = 0; i < 5; i++) k.p('cone6', 0xfff0a8, -0.2 + i * 0.1, 0.07, 0.5, 0.05, 0.08, 0.05); } },
+  finblade: { body(k, c) { k.p('cyl8', DARK, 0, 0, 0, 0.06, 0.2, 0.06, X).p('box', GOLD, 0, 0, 0.11, 0.05, 0.16, 0.03).p('box', c, 0, 0.02, 0.5, 0.014, 0.13, 0.76, -0.04).p('cone4', c, 0, 0.05, 0.94, 0.014, 0.16, 0.13, X - 0.1).p('box', 0xffffff, 0, -0.04, 0.5, 0.016, 0.012, 0.74, -0.04); } },
+  tusk: { muzzle: 0.72, body(k, c) { k.p('rbox', 0x5a2f20, 0, 0, 0.02, 0.1, 0.14, 0.34).p('tube', BLACK, 0.045, 0.03, 0.44, 0.09, 0.52, 0.09, X).p('tube', BLACK, -0.045, 0.03, 0.44, 0.09, 0.52, 0.09, X).p('torus', GOLD, 0, 0.03, 0.68, 0.24, 0.14, 0.7).p('cone', c, 0, -0.06, -0.3, 0.09, 0.4, 0.09, -X - 0.3).p('torus', GOLD, 0, -0.01, -0.14, 0.12, 0.12, 1); grip(k, -0.06, 0x5a2f20); },
+    slide: { travel: 0.1, pump: true, draw: k => k.p('rbox2', RED, 0, -0.045, 0.36, 0.15, 0.08, 0.2) } },
+  floe: { muzzle: 1.0, body(k, c) { k.p('rbox', 0x5a2f20, 0, 0, 0.05, 0.14, 0.17, 0.5).p('tube', 0xbfe6ff, 0, 0.02, 0.6, 0.17, 0.5, 0.17, X).p('tube', BLACK, 0, 0.02, 0.72, 0.1, 0.6, 0.1, X).p('rbox', 0x8a4a2e, 0, 0.04, 0.34, 0.4, 0.34, 0.03).p('box', BLACK, 0, 0.1, 0.36, 0.12, 0.04, 0.01).p('cyl6', DARK, 0, -0.01, -0.28, 0.022, 0.16, 0.022, X).p('cyl8', RED, 0, -0.01, -0.38, 0.05, 0.14, 0.05, 0, 0, X); grip(k, -0.04); },
+    spin: { at: [0, -0.14, 0.12], draw: k => k.p('cyl20', DARK, 0, 0, 0, 0.26, 0.09, 0.26).p('cyl8', c0(0xffb0a0), 0, 0.05, 0, 0.08, 0.02, 0.08) } },
+  quill: { muzzle: 1.0, body(k, c) { k.p('rbox', WOOD, 0, 0, 0.06, 0.075, 0.11, 0.5).p('tube', DARK, 0, 0.025, 0.66, 0.055, 0.7, 0.055, X).p('tube', DARK, 0, -0.025, 0.56, 0.05, 0.5, 0.05, X).p('box', GOLD, 0, 0, 0.3, 0.08, 0.1, 0.02).p('box', WHITE, 0.045, 0.02, 0.5, 0.004, 0.09, 0.3, 0.2).p('box', c, 0.047, 0.0, 0.42, 0.004, 0.05, 0.14, 0.2).p('cyl6', GOLD, 0.045, 0.06, 0.36, 0.012, 0.06, 0.012); grip(k, -0.08, WOODD); stock(k, -0.16, 0.3, WOOD); sights(k, -0.06, 0.96, 0.065); },
+    slide: { travel: 0.09, bolt: true, draw: k => k.p('torus', STEEL, 0, -0.14, -0.02, 0.1, 0.14, 0.9, 0, X) } },
+};
+function c0(h) { return h; }
+const flashGeo = new THREE.ConeGeometry(0.5, 1, 7, 1, true).rotateX(-Math.PI / 2), flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide, fog: false });
+export function weaponMesh(id) {
+  const d = WPN[id], w = WEAPONS[id], g = new THREE.Group(), u = g.userData = { type: w.type, def: w };
+  g.add(part('w_' + id, k => d.body(k, w.col), false));
+  if (d.slide) { u.slide = part('ws_' + id, d.slide.draw); u.travel = d.slide.travel; u.bolt = d.slide.bolt; u.pump = d.slide.pump; g.add(u.slide); }
+  if (d.mag) { u.mag = part('wm_' + id, d.mag.draw); g.add(u.mag); }
+  if (d.spin) { u.spin = part('wr_' + id, d.spin.draw); u.spin.position.set(...d.spin.at); g.add(u.spin); }
+  if (d.muzzle) { u.flash = new THREE.Mesh(flashGeo, flashMat); u.flash.position.z = d.muzzle + 0.16; u.flash.visible = false; g.add(u.flash); }
+  return g;
+}
+// moving parts: slides kick with recoil, bolts and pumps cycle between shots, drums turn, magazines drop on reload
+export function animateWeapon(g, c, dt) {
+  const u = g.userData, rc = c.recoil, slot = c.weapons[c.cur], rl = c.reload > 0 ? 1 - c.reload / slot.def.reload : -1;
+  if (u.slide) { const cyc = u.bolt || u.pump ? Math.sin(Math.min(1, Math.max(0, 1 - c.cd * u.def.rate) * 1.6) * Math.PI) * (c.cd > 0 ? 1 : 0) : rc; u.slide.position.z = -u.travel * cyc; if (u.bolt) u.slide.rotation.z = -cyc * 0.9; }
+  if (u.spin) u.spin.rotation[u.type === 'launcher' ? 'z' : u.def.pellets ? 'y' : 'x'] += rc * dt * (u.type === 'launcher' ? 9 : 26);
+  if (u.mag) { const d = rl < 0 ? 0 : Math.sin(Math.min(1, rl * 1.15) * Math.PI); u.mag.position.set(-d * 0.06, -d * 0.42, -d * 0.08); u.mag.rotation.x = d * 0.5; }
+  if (u.flash) { u.flash.visible = rc > 0.72; if (u.flash.visible) { const s = (0.16 + Math.random() * 0.12) * (u.type === 'sniper' || u.type === 'launcher' || u.type === 'shotgun' ? 1.8 : 1); u.flash.scale.set(s, s, s * 2.2); u.flash.rotation.z = Math.random() * 6; } }
 }
 
-export function weaponMesh(id) { return mesh(weaponGeo(id), false); }
-
-export function makeVehicle(type) {
-  const root = new THREE.Group(); let turret = null;
-  if (type === 'waddle') {
-    root.add(mesh(geo('v_waddle', k => k.p('box', 0x38404f, 0.55, 0.12, 0.5, 0.22, 0.08, 1.7).p('box', 0x38404f, -0.55, 0.12, 0.5, 0.22, 0.08, 1.7).p('box', 0x38404f, 0.55, 0.22, 1.4, 0.22, 0.08, 0.4, -0.6).p('box', 0x38404f, -0.55, 0.22, 1.4, 0.22, 0.08, 0.4, -0.6)
-      .p('box', BLACK, 0, 0.3, -0.75, 0.7, 0.4, 1.3).p('sph', ORANGE, 0, 0.62, 0.3, 1.0, 0.7, 2.2).p('box', BLACK, 0, 0.92, -0.45, 0.56, 0.16, 1.0).p('box', 0x8fd0f5, 0, 1.12, 0.62, 0.7, 0.44, 0.06, -0.5)
-      .p('cyl', STEEL, 0, 1.0, 0.36, 0.05, 0.9, 0.05, 0, 0, Math.PI / 2).p('sph', 0xfff2b0, 0, 0.72, 1.36, 0.24).p('box', WHITE, 0, 0.6, 0.3, 1.02, 0.1, 1.2))));
-  } else if (type === 'gentoo') {
-    root.add(mesh(geo('v_gentoo', k => k.p('box', BLACK, 1.35, 0.5, 0, 0.6, 1.0, 5.2).p('box', BLACK, -1.35, 0.5, 0, 0.6, 1.0, 5.2).p('box', 0xe6eef7, 0, 0.95, 0, 2.6, 0.9, 5.0).p('box', 0xbcd8ee, 0, 1.15, 2.2, 2.5, 0.5, 1.2, 0.5)
-      .p('box', ORANGE, 0, 1.42, -1.6, 2.2, 0.06, 0.5).p('box', 0x8fa6bd, 0.7, 1.0, 0.6, 1.0, 0.82, 1.5, 0, 0.5).p('box', 0x8fa6bd, -0.8, 1.0, -1.2, 1.0, 0.82, 1.2, 0, -0.4))));
-    turret = mesh(geo('v_gentoo_t', k => k.p('dome', 0xe6eef7, 0, 0, 0, 2.3, 1.7, 2.6).p('cyl', 0x38404f, 0, 0.42, 2.2, 0.3, 3.0, 0.3, Math.PI / 2).p('cyl', WHITE, 0, 0.42, 3.7, 0.42, 0.4, 0.42, Math.PI / 2).p('cyl', BLACK, 0.5, 0.86, -0.2, 0.6, 0.16, 0.6).p('box', ORANGE, 0, 0.5, -1.0, 0.8, 0.3, 0.1)));
-    turret.position.y = 1.4; root.add(turret);
-  } else { // manta
-    root.add(mesh(geo('v_manta', k => k.p('sph', 0x1f6f78, 0, 0.3, 0, 1.3, 0.6, 3.6).p('sph', 0x23b8a8, 0, 0.3, 0.2, 4.2, 0.16, 1.8).p('sph', 0x8fd0f5, 0, 0.55, 0.6, 0.8, 0.4, 1.2).p('cone', 0x1f6f78, 0, 0.35, -2.2, 0.2, 1.4, 0.2, -Math.PI / 2).p('box', 0x1f6f78, 0, 0.7, -1.4, 0.06, 0.6, 0.6))));
-  }
-  return { root, turret };
+// ---------------------------------------------------------------- drivable vehicles
+let treadTex = null;
+function treadMat() {
+  if (!treadTex) { const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64; const c = cv.getContext('2d'); c.fillStyle = '#1c2030'; c.fillRect(0, 0, 64, 64); c.fillStyle = '#3d4658'; c.fillRect(6, 4, 22, 56); c.fillStyle = '#2a3142'; c.fillRect(38, 0, 16, 10); c.fillRect(38, 54, 16, 10); c.fillStyle = '#4a5468'; c.fillRect(10, 26, 14, 12); treadTex = new THREE.CanvasTexture(cv); treadTex.wrapS = treadTex.wrapT = THREE.RepeatWrapping; treadTex.colorSpace = THREE.SRGBColorSpace; }
+  const t = treadTex.clone(); t.needsUpdate = true; return new THREE.MeshLambertMaterial({ map: t });
 }
+const belts = {};
+function beltGeo(len, h, w) { // closed track loop in the yz-plane with UVs running along its length
+  const key = len + '_' + h + '_' + w; if (belts[key]) return belts[key];
+  const R = h / 2, L = len - h, pts = [], P = [], N = [], U = [], I = []; let d = 0;
+  const add = (y, z, ny, nz, step) => { d += step; pts.push([y, z, ny, nz, d]); };
+  add(h, -L / 2, 1, 0, 0); add(h, L / 2, 1, 0, L); for (let i = 1; i <= 8; i++) { const a = i / 8 * Math.PI; add(R + Math.cos(a) * R, L / 2 + Math.sin(a) * R, Math.cos(a), Math.sin(a), Math.PI * R / 8); }
+  add(0, -L / 2, -1, 0, L); for (let i = 1; i <= 8; i++) { const a = i / 8 * Math.PI; add(R - Math.cos(a) * R, -L / 2 - Math.sin(a) * R, -Math.cos(a), -Math.sin(a), Math.PI * R / 8); }
+  pts.forEach((p, i) => { for (const s of [-1, 1]) { P.push(s * w / 2, p[0], p[1]); N.push(0, p[2], p[3]); U.push(p[4] / 0.42, s > 0 ? 1 : 0); } if (i < pts.length - 1) I.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3); });
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I); return belts[key] = g;
+}
+function belt(len, h, w, x, y, z) { const m = new THREE.Mesh(beltGeo(len, h, w), treadMat()); m.position.set(x, y, z); m.castShadow = true; m.material.side = THREE.DoubleSide; return m; }
+function spinWheel(r, w, x, y, z, gold) { const m = part(gold ? 'whG' : 'wh', k => wheel(k, 0, 0, 0, 0.5, 1, gold ? 0x38404f : 0x2a3040, gold ? GOLD : STEEL), true); m.scale.set(w, r * 2, r * 2); m.position.set(x, y, z); m.userData.r = r; return m; }
+
+const BUILD = {
+  waddle() {
+    const root = new THREE.Group(), lean = new THREE.Group(), wheels = []; root.add(lean);
+    lean.add(part('v_waddle', k => { k.p('rbox', BLACK, 0, 0.5, -0.45, 0.62, 0.3, 2.0).p('rbox2', ORANGE, 0, 0.72, 0.62, 0.92, 0.5, 1.5).p('nose', ORANGE, 0, 0.66, 1.52, 0.9, 0.7, 0.46, X).p('rbox', WHITE, 0, 0.74, 0.62, 0.94, 0.1, 1.2).p('rbox', BLACK, 0, 0.97, 0.7, 0.5, 0.05, 0.7)
+      .p('rbox2', GLASS, 0, 1.2, 0.84, 0.74, 0.5, 0.07, -0.55).p('rbox2', BLACK, 0, 0.84, -0.42, 0.52, 0.22, 1.2).p('rbox2', BLACK, 0, 1.06, -1.02, 0.5, 0.42, 0.16, -0.2).p('rbox', DARK, 0.5, 0.36, -0.1, 0.34, 0.06, 1.3).p('rbox', DARK, -0.5, 0.36, -0.1, 0.34, 0.06, 1.3)
+      .p('sph', 0xfff2b0, 0, 0.7, 1.72, 0.26, 0.2, 0.1).p('torus', STEEL, 0, 0.7, 1.72, 0.3, 0.24, 0.8).p('cyl8', STEEL, 0.34, 0.6, -1.3, 0.09, 0.5, 0.09, X).p('cyl8', BLACK, 0.34, 0.6, -1.56, 0.11, 0.06, 0.11, X).p('rbox', STEEL, 0, 0.72, -1.3, 0.56, 0.04, 0.5).p('rbox', WOOD, 0, 0.92, -1.3, 0.44, 0.34, 0.4)
+      .p('cyl6', STEEL, -0.24, 1.2, -1.5, 0.03, 1, 0.03).p('box', ORANGE, -0.02, 1.56, -1.5, 0.42, 0.26, 0.02).p('cyl8', RED, 0.2, 0.96, 0.2, 0.09, 0.04, 0.09).p('box', BLACK, 0.3, 0.74, 1.0, 0.3, 0.02, 0.5).p('box', BLACK, -0.3, 0.74, 1.0, 0.3, 0.02, 0.5); for (let i = 0; i < 4; i++) k.p('box', BLACK, 0.3, 0.76, 0.84 + i * 0.1, 0.24, 0.01, 0.03).p('box', BLACK, -0.3, 0.76, 0.84 + i * 0.1, 0.24, 0.01, 0.03); }, true));
+    const bars = part('v_waddle_b', k => k.p('cyl6', STEEL, 0, 0.14, -0.06, 0.05, 0.36, 0.05, -0.4).p('cyl6', STEEL, 0, 0.3, -0.12, 0.04, 0.8, 0.04, 0, 0, X).p('cyl8', BLACK, 0.36, 0.3, -0.12, 0.06, 0.16, 0.06, 0, 0, X).p('cyl8', BLACK, -0.36, 0.3, -0.12, 0.06, 0.16, 0.06, 0, 0, X).p('cyl6', STEEL, 0.3, 0.42, -0.1, 0.02, 0.2, 0.02).p('sphL', GLASS, 0.3, 0.54, -0.1, 0.1, 0.07, 0.03).p('cyl6', STEEL, -0.3, 0.42, -0.1, 0.02, 0.2, 0.02).p('sphL', GLASS, -0.3, 0.54, -0.1, 0.1, 0.07, 0.03));
+    bars.position.set(0, 0.95, 0.5); lean.add(bars);
+    const skis = [-1, 1].map(s => { const m = part('v_waddle_s', k => k.p('rbox', DARK, 0, -0.3, 0.05, 0.17, 0.05, 1.5).p('rbox', DARK, 0, -0.22, 0.86, 0.17, 0.05, 0.3, -0.6).p('box', STEEL, 0, -0.335, 0.05, 0.03, 0.03, 1.3).p('cyl6', STEEL, 0, -0.1, 0, 0.05, 0.4, 0.05, 0.15).p('torus', RED, 0, -0.08, 0, 0.12, 0.12, 4, X + 0.15).p('rbox', STEEL, 0, -0.26, 0, 0.1, 0.06, 0.22).p('cyl6', STEEL, 0, 0.1, -0.2, 0.03, 0.5, 0.03, -0.9), true); m.position.set(s * 0.56, 0.36, 1.0); root.add(m); return m; });
+    const tb = belt(2.0, 0.42, 0.5, 0, 0.0, -0.55); root.add(tb); for (const z of [-1.2, -0.55, 0.1]) { const w = spinWheel(0.13, 0.4, 0, 0.17, z); root.add(w); wheels.push(w); }
+    let st = 0;
+    return { root, update(v, dt, steer, time) { st = damp(st, steer, 8, dt); const k = Math.min(1, Math.abs(v.speed) / 18); for (const s of skis) s.rotation.y = -st * 0.5; bars.rotation.y = -st * 0.6; lean.rotation.z = st * k * 0.28; lean.position.y = Math.sin(time * 31) * 0.012 * k; lean.rotation.x = -k * 0.03; tb.material.map.offset.x -= v.speed * dt / 0.42; for (const w of wheels) w.rotation.x += v.speed * dt / w.userData.r; } };
+  },
+  gentoo() {
+    const root = new THREE.Group(), rock = new THREE.Group(), turret = new THREE.Group(), elev = new THREE.Group(), sides = []; root.add(rock);
+    for (const s of [-1, 1]) { const b = belt(5.4, 1.0, 0.62, s * 1.42, 0, 0), ws = []; root.add(b); for (let i = 0; i < 5; i++) ws.push(spinWheel(0.31, 0.56, s * 1.42, 0.33, -1.9 + i * 0.95)); ws.push(spinWheel(0.27, 0.6, s * 1.42, 0.62, 2.28, true), spinWheel(0.25, 0.58, s * 1.42, 0.6, -2.3)); for (const w of ws) root.add(w); sides.push({ b, ws, s }); }
+    rock.add(part('v_gentoo', k => {
+      k.p('rbox', 0xd3dfea, 0, 0.72, 0, 2.3, 0.62, 5.0).p('rbox2', 0xe6eef7, 0, 1.18, -0.1, 3.0, 0.5, 4.5).p('rbox', 0xe6eef7, 0, 1.0, 2.3, 2.9, 0.12, 1.3, 0.5).p('rbox', 0xbcd8ee, 0, 0.72, 2.56, 2.3, 0.5, 0.2, -0.3);
+      for (const s of [-1, 1]) { k.p('rbox', 0xe6eef7, s * 1.45, 1.1, 0, 0.78, 0.1, 5.3).p('rbox', 0xe6eef7, s * 1.45, 0.98, 2.72, 0.78, 0.34, 0.08, -0.5).p('rbox', 0xe6eef7, s * 1.45, 0.98, -2.72, 0.78, 0.34, 0.08, 0.5).p('rbox', 0x8fa6bd, s * 1.48, 1.28, -0.9, 0.56, 0.26, 1.3).p('box', DARK, s * 1.48, 1.28, -0.24, 0.5, 0.2, 0.02).p('sph', 0xfff2b0, s * 1.05, 1.02, 2.72, 0.24, 0.24, 0.12).p('torus', STEEL, s * 1.05, 1.02, 2.74, 0.3, 0.3, 0.8).p('archL', STEEL, s * 1.05, 0.9, 2.78, 0.36, 0.5, 0.3)
+        .p('torus', STEEL, s * 0.7, 0.66, 2.7, 0.2, 0.2, 2, X).p('cyl8', 0x8a4a2e, s * 0.9, 1.3, -2.5, 0.16, 0.7, 0.16, X).p('cyl8', BLACK, s * 0.9, 1.3, -2.87, 0.19, 0.05, 0.19, X).p('cyl6', WOOD, s * 1.5, 1.22, 1.2, 0.035, 1.3, 0.035, X).p('box', STEEL, s * 1.5, 1.22, 1.95, 0.2, 0.02, 0.24).p('sphL', SNOW, s * 1.2, 1.44, -1.9, 1.0, 0.2, 0.9); }
+      for (let i = 0; i < 5; i++) k.p('box', BLACK, -0.8 + i * 0.4, 1.445, -1.7, 0.3, 0.02, 0.9); k.p('box', DARK, 0, 1.44, -1.7, 2.1, 0.012, 1.0).p('rbox', ORANGE, 0, 1.19, -2.36, 2.6, 0.2, 0.04).p('box', WHITE, 0, 1.19, -2.385, 0.6, 0.14, 0.01);
+      for (let i = 0; i < 4; i++) k.p('rbox', BLACK, -0.9 + i * 0.6, 1.08, 2.12, 0.5, 0.06, 0.22, 0.5); k.p('cyl20', DARK, 0, 1.44, 0.2, 2.1, 0.08, 2.1).p('sphL', SNOW, 0.5, 1.42, 1.4, 1.2, 0.14, 0.8).p('rbox', 0x6f8a4a, -1.0, 1.52, 0.9, 0.4, 0.22, 0.6).p('rbox', WOOD, 1.0, 1.5, -0.6, 0.44, 0.2, 0.44, 0, 0.3); }, true));
+    turret.add(part('v_gentoo_t', k => {
+      k.p('rbox2', 0xe6eef7, 0, 0.42, 0, 2.2, 0.84, 2.5).p('rbox2', 0xd3dfea, 0, 0.42, -1.3, 1.7, 0.66, 1.0).p('rbox', 0x8fa6bd, 0, 0.4, -1.86, 1.5, 0.4, 0.3).p('cyl20', 0xd3dfea, 0.52, 0.88, -0.2, 0.74, 0.2, 0.74).p('cyl8', BLACK, 0.52, 1.0, -0.2, 0.6, 0.06, 0.6).p('cyl8', 0xe6eef7, 0.52, 1.24, -0.52, 0.6, 0.05, 0.6, -1.1)
+        .p('cyl8', DARK, -0.5, 0.86, 0, 0.5, 0.06, 0.5).p('box', ORANGE, 0, 0.6, -1.81, 0.8, 0.26, 0.02).p('rbox', DARK, -0.62, 0.9, 0.7, 0.3, 0.14, 0.2).p('box', GLASS, -0.62, 0.92, 0.805, 0.24, 0.07, 0.01).p('sphL', SNOW, -0.3, 0.86, -0.9, 0.9, 0.12, 0.7).p('cyl6', DARK, 0.9, 0.88, -1.0, 0.07, 0.12, 0.07);
+      for (const s of [-1, 1]) { for (let i = 0; i < 3; i++) k.p('tube', DARK, s * 1.12, 0.5 + i * 0.02, 0.5 - i * 0.2, 0.13, 0.3, 0.13, X - 0.5, s * 0.5); k.p('cyl6', STEEL, s * 1.08, 0.7, -0.8, 0.025, 1.4, 0.025, X).p('box', STEEL, s * 1.08, 0.56, -0.2, 0.02, 0.26, 0.02).p('box', STEEL, s * 1.08, 0.56, -1.4, 0.02, 0.26, 0.02); }
+      for (let i = 0; i < 4; i++) k.p('rbox', 0xbcd8ee, 0.52 + Math.cos(i * 0.8 + 0.4) * 0.4, 0.98, -0.2 + Math.sin(i * 0.8 + 0.4) * 0.4, 0.12, 0.1, 0.06, 0, -i * 0.8 + 1.1); }, true));
+    elev.add(part('v_gentoo_m', k => k.p('rbox2', 0xbcd8ee, 0, 0, 0.1, 1.1, 0.62, 0.6).p('cyl8', DARK, 0, 0, 0.36, 0.5, 0.3, 0.5, X).p('tube', BLACK, 0.42, 0.06, 0.66, 0.07, 0.8, 0.07, X).p('box', BLACK, 0.42, 0.12, 0.34, 0.08, 0.06, 0.2), true));
+    const barrel = part('v_gentoo_b', k => { gunBarrel(k, 0, 0, 0.4, 3.3, 0.13, 0, 0x8fa6bd); k.p('tube', WHITE, 0, 0, 1.9, 0.34, 0.5, 0.34, X).p('tube', ORANGE, 0, 0, 3.1, 0.31, 0.08, 0.31, X); }, true); elev.add(barrel);
+    const ant = part('v_gentoo_a', k => k.p('cyl6', BLACK, 0, 1.1, 0, 0.022, 2.2, 0.022).p('box', ORANGE, 0.16, 2.0, 0, 0.3, 0.18, 0.01).p('sphL', RED, 0, 2.22, 0, 0.05)); ant.position.set(0.9, 0.9, -1.0); turret.add(ant);
+    elev.position.set(0, 0.42, 1.2); turret.add(elev); turret.position.set(0, 1.46, 0.2); rock.add(turret);
+    const m = { root, turret, elev, kick: 0, vel: 0, update(v, dt, steer, time) {
+      m.kick = damp(m.kick, 0, 5, dt); barrel.position.z = -0.55 * m.kick; const acc = dt > 0 ? (v.speed - m.vel) / dt : 0; m.vel = v.speed;
+      rock.rotation.x = damp(rock.rotation.x, -m.kick * 0.06 * Math.cos(turret.rotation.y) - clamp1(acc * 0.006), 10, dt); rock.rotation.z = damp(rock.rotation.z, m.kick * 0.06 * Math.sin(turret.rotation.y), 10, dt);
+      ant.rotation.x = Math.sin(time * 8) * 0.04 * Math.min(1, Math.abs(v.speed) / 6) + m.kick * 0.25 + clamp1(acc * 0.01); ant.rotation.z = Math.sin(time * 6.3) * 0.03;
+      for (const sd of sides) { const sp = v.speed + sd.s * steer * 2.4; sd.b.material.map.offset.x -= sp * dt / 0.42; for (const w of sd.ws) w.rotation.x += sp * dt / w.userData.r; } } };
+    return m;
+  },
+  manta() {
+    const root = new THREE.Group(), roll = new THREE.Group(), props = []; root.add(roll);
+    roll.add(part('v_manta', k => { k.p('sph', 0x1f6f78, 0, 0.32, 0, 1.4, 0.66, 3.8).p('sph', 0xbfe9e4, 0, 0.2, 0.1, 1.3, 0.5, 3.5).p('rbox2', 0x23b8a8, 0, 0.32, 0.1, 4.4, 0.16, 1.7).p('rbox2', 0x1f6f78, 0, 0.3, -0.5, 3.0, 0.14, 1.0).p('sph', GLASS, 0, 0.56, 0.7, 0.84, 0.44, 1.3).p('torus', 0x1f6f78, 0, 0.5, 0.7, 0.88, 1.36, 0.5, X)
+      .p('rbox', 0x1f6f78, 0, 0.74, -1.4, 0.07, 0.66, 0.7, -0.3).p('cyl6', STEEL, 0.5, 0.5, -0.2, 0.03, 1.2, 0.03, X).p('cyl6', STEEL, -0.5, 0.5, -0.2, 0.03, 1.2, 0.03, X).p('sph', 0xfff2b0, 0.3, 0.3, 1.78, 0.16, 0.12, 0.1).p('sph', 0xfff2b0, -0.3, 0.3, 1.78, 0.16, 0.12, 0.1);
+      for (const s of [-1, 1]) { k.p('rbox', 0x1f6f78, s * 2.2, 0.5, -0.1, 0.08, 0.4, 0.7, -0.2).p('tube', DARK, s * 0.62, 0.3, -1.7, 0.56, 0.5, 0.56, X).p('nose', 0x1f6f78, s * 0.62, 0.3, -1.3, 0.3, 0.6, 0.3, X).p('rbox', 0x1f6f78, s * 0.62, 0.3, -1.2, 0.5, 0.06, 0.4).p('rbox', BLACK, s * 1.0, 0.3, 1.0, 0.5, 0.04, 0.24); for (let i = 0; i < 3; i++) k.p('box', BLACK, s * 0.34, 0.36, 1.1 + i * 0.12, 0.012, 0.1, 0.04); } }, true));
+    for (const s of [-1, 1]) { const p = part('v_manta_p', k => { k.p('nose', GOLD, 0, 0, -0.06, 0.12, 0.18, 0.12, -X); for (let i = 0; i < 3; i++) k.p('rbox', GOLD, Math.cos(i * 2.094) * 0.13, Math.sin(i * 2.094) * 0.13, 0, 0.24, 0.09, 0.02, 0.5, 0, i * 2.094); }); p.position.set(s * 0.62, 0.3, -1.86); roll.add(p); props.push(p); }
+    let st = 0;
+    return { root, update(v, dt, steer, time) { st = damp(st, steer, 5, dt); const k = Math.min(1, Math.abs(v.speed) / 16); roll.rotation.z = st * k * 0.4; roll.rotation.x = -k * 0.05; roll.position.y = Math.sin(time * 2.2) * 0.04; props[0].rotation.z += (6 + v.speed * 3) * dt; props[1].rotation.z -= (6 + v.speed * 3) * dt; } };
+  },
+};
+const clamp1 = v => Math.max(-0.06, Math.min(0.06, v));
+export function makeVehicle(type) { const m = BUILD[type](); m.update({ speed: 0 }, 0, 0, 0); return m; }

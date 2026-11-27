@@ -85,7 +85,7 @@ export class World {
     const r = mulberry32(4242); this.nunataks = [];
     for (let i = 0; i < 400 && this.nunataks.length < 46; i++) { const px = 140 + r() * 1080, py = 90 + r() * 900, [inL, d] = polyInfo(COAST, px, py); if (inL && d * SCALE > 170 && this.locs.every(l => Math.hypot(l.px - px, l.py - py) * SCALE > 150)) this.nunataks.push({ px, py, r: 35 + r() * 60, h: 26 + r() * r() * 75 }); }
     this.genHeights(); this.buildRoads(); this.buildTerrain(); this.buildSkyWater();
-    this.locMeshes = this.locs.map(l => { const m = buildLocation(l, this); scene.add(m.major, m.detail); return m; });
+    this.locMeshes = this.locs.map(l => { const m = buildLocation(l, this); scene.add(m.major, m.detail); for (const sp of m.spinners) scene.add(sp.pivot); return m; });
     this.sectors = buildScatter(this, quality);
   }
   rawHeight(x, z, info) {
@@ -302,7 +302,7 @@ export class World {
     this.sky.position.copy(cam.position); this.water.position.set(cam.position.x, 0, cam.position.z);
     this.sun.target.position.copy(focus); this.sun.position.copy(focus).addScaledVector(this.sunDir, 150);
     const cx = cam.position.x, cz = cam.position.z, far = this.quality > 0 ? 1500 : 950, near = this.quality > 0 ? 420 : 300;
-    for (let i = 0; i < this.locs.length; i++) { const l = this.locs[i], d = Math.hypot(l.x - cx, l.z - cz), m = this.locMeshes[i]; m.major.visible = d < far; m.detail.visible = d < near + l.R; }
+    for (let i = 0; i < this.locs.length; i++) { const l = this.locs[i], d = Math.hypot(l.x - cx, l.z - cz), m = this.locMeshes[i]; m.major.visible = d < far; m.detail.visible = d < near + l.R; for (const sp of m.spinners) { sp.pivot.visible = d < far; if (d < far) sp.mesh.rotation[sp.axis] += sp.speed * dt; } }
     for (const s of this.sectors) s.mesh.visible = Math.hypot(s.x - cx, s.z - cz) < (this.quality > 0 ? 1150 : 700);
   }
 }

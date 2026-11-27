@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { G } from './kit.js';
 import { FACTIONS, WEAPONS, clamp, lerp, smooth } from './data.js';
-import { weaponMesh } from './models.js';
+import { weaponMesh, animateWeapon } from './models.js';
 
 const MAT = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 26, specular: 0x26323f });
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), IDQ = new THREE.Quaternion();
@@ -174,7 +174,7 @@ export function makeChar(faction, cls) {
     st: { move: 0, prone: 0, swim: 0, dead: 0, aim: 0, lean: 0, yaw: null, phase: Math.random() * 6, blink: 0, blinkT: 1 + Math.random() * 4, sw: 0 },
     setWeapon(id) { gun.clear(); const w = weaponMesh(id); w.scale.setScalar(data.cfg.gunS); gun.add(w); this.melee = WEAPONS[id].type === 'melee'; this.st.sw = 0; },
     reset() { Object.assign(this.st, { move: 0, prone: 0, swim: 0, dead: 0, lean: 0 }); },
-    animate(c, dt, time) { drive(this, c, dt); ANIM[this.kind](this, c, dt, time); } };
+    animate(c, dt, time) { drive(this, c, dt); ANIM[this.kind](this, c, dt, time); if (gun.children[0]) animateWeapon(gun.children[0], c, dt); } };
   return m;
 }
 
@@ -184,6 +184,7 @@ function drive(m, c, dt) {
   s.aim = damp(s.aim, clamp(c.pitch, -0.9, 0.9), 16, dt); s.phase += dt * (2.4 + sp * (m.kind === 'biped' ? 1.15 : 0.7)); s.flinch = c.flash;
   if (s.yaw == null) s.yaw = c.yaw; let dy = (c.yaw - s.yaw) % 6.2832; if (dy > Math.PI) dy -= 6.2832; if (dy < -Math.PI) dy += 6.2832; s.yaw = c.yaw; if (dt > 1e-4) s.lean = damp(s.lean, clamp(dy / dt * 0.14, -1, 1), 5, dt);
   s.blinkT -= dt; if (s.blinkT < 0) { s.blinkT = 2 + Math.random() * 4; s.blink = 0.13; } s.blink -= dt; m.B.eyes.scale.y = s.blink > 0 || !c.alive ? 0.12 : 1;
+  s.rl = damp(s.rl || 0, c.reload > 0 && c.alive ? 1 : 0, 9, dt);
   s.sw = c.swing > 0 ? Math.sin((1 - c.swing / 0.28) * Math.PI) : damp(s.sw, 0, 14, dt);
 }
 // analytic two-bone IK in the parent's space; bones point along `rest` when unrotated
@@ -217,7 +218,7 @@ const ANIM = {
     B.tail.rotation.set(Math.sin(time * 3 + m.seed) * 0.08 + up * sw * 0.2 * mv, up * Math.cos(ph) * 0.3 * mv, 0);
     const cp = B.hips.rotation.x + B.spine.rotation.x + B.chest.rotation.x, g = m.gun, gs = k.gunS;
     g.position.set(lerp(k.gunU[0], k.gunP[0], H) + D * 0.2, lerp(k.gunU[1], k.gunP[1], H) - D * 0.3 + (m.melee ? s.sw * 0.25 : 0), lerp(k.gunU[2], k.gunP[2], H) - c.recoil * 0.07);
-    g.rotation.set(-s.aim - cp + D * 0.9 + (m.melee ? -0.7 + s.sw * 1.9 : 0), m.melee ? 0 : -0.06 * up, 0);
+    g.rotation.set(-s.aim - cp + D * 0.9 + (m.melee ? -0.7 + s.sw * 1.9 : 0), m.melee ? 0 : -0.06 * up, s.rl * 0.5);
     hands(m, c, D * 0.8, sw * 0.14 * mv);
   },
   seal(m, c, dt, time) {
@@ -233,7 +234,7 @@ const ANIM = {
     B.hfL.rotation.set(0, -0.25 - L * 0.35 + S * Math.sin(ph + 2.2) * 0.5 * pm, L * 0.3); B.hfR.rotation.set(0, 0.25 + L * 0.35 + S * Math.sin(ph + 2.2) * 0.5 * pm, -L * 0.3);
     const cp = B.pelvis.rotation.x + B.lumbar.rotation.x + B.thorax.rotation.x, g = m.gun;
     g.position.set(lerp(k.gunU[0], k.gunP[0], S) + D * 0.2, lerp(k.gunU[1], k.gunP[1], S) - (m.melee ? s.sw * 0.2 : 0), lerp(k.gunU[2], k.gunP[2], S) - c.recoil * 0.07 * (1 - S) + (m.melee ? s.sw * 0.2 : 0));
-    g.rotation.set(-s.aim - cp + D * 0.8 + (m.melee ? -0.7 + s.sw * 1.9 : 0), 0, 0);
+    g.rotation.set(-s.aim - cp + D * 0.8 + (m.melee ? -0.7 + s.sw * 1.9 : 0), 0, s.rl * 0.5);
     hands(m, c, D * 0.8, gal * 0.1);
   },
   orca(m, c, dt, time) {

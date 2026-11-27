@@ -236,7 +236,7 @@ export class Game {
     if (w.collide(v.pos, s.r)) v.speed *= 0.9;
     v.pos.x = clamp(v.pos.x, X0 + 25, -X0 - 25); v.pos.z = clamp(v.pos.z, Z0 + 25, -Z0 - 25);
     if (v.type === 'manta' && w.h(v.pos.x, v.pos.z) > 0.6) { v.pos.x = ox; v.pos.z = oz; v.speed = 0; }
-    this.placeVehicle(v); v.cd -= dt;
+    this.placeVehicle(v); v.cd -= dt; v.model.update(v, dt, steer, this.time);
     if (Math.abs(v.speed) > 8) { for (const o of this.chars) if (o.alive && o !== v.driver && this.hostile(v.driver, o) && Math.hypot(o.pos.x - v.pos.x, o.pos.z - v.pos.z) < s.r + o.r + 0.3 && this.time - (o.ranOver || -9) > 0.8) { o.ranOver = this.time; this.damage(o, 45 + Math.abs(v.speed) * 2.5, v.driver, 'roadkill'); } if (Math.random() < 0.5) this.puff(v.pos.x - Math.sin(v.yaw) * 1.5, v.pos.y + 0.2, v.pos.z - Math.cos(v.yaw) * 1.5, 1, 0xffffff, 1.5, 0.7); }
   }
 
@@ -252,7 +252,7 @@ export class Game {
       if (inp.touch && !v) { let best = null, ba = 0.14; for (const o of this.chars) { if (!o.alive || !this.hostile(p, o)) continue; const d = p.pos.distanceTo(o.pos); if (d > wd.range || d < 2) continue; const a = Math.abs(angDiff(Math.atan2(o.pos.x - p.pos.x, o.pos.z - p.pos.z), this.camYaw)); if (a < ba) { ba = a; best = o; } } if (best) { const d = Math.hypot(best.pos.x - p.pos.x, best.pos.z - p.pos.z); this.camYaw += angDiff(Math.atan2(best.pos.x - p.pos.x, best.pos.z - p.pos.z), this.camYaw) * Math.min(1, dt * 4); this.camPitch += (Math.atan2(best.pos.y + best.h * 0.5 - p.pos.y - p.h * 0.9, d) + 0.06 - this.camPitch) * Math.min(1, dt * 2.5); } }
       if (v) {
         this.driveVehicle(v, dt, inp.mz, inp.mx); p.pos.copy(v.pos); p.yaw = v.yaw; p.vel.set(Math.sin(v.yaw) * v.speed, 0, Math.cos(v.yaw) * v.speed);
-        if (v.model.turret) { v.model.turret.rotation.y = this.camYaw - v.yaw; if (inp.fire && v.cd <= 0) { v.cd = 1.7; _b.set(v.pos.x + Math.sin(this.camYaw) * 4, v.pos.y + 2.1, v.pos.z + Math.cos(this.camYaw) * 4); this.ballistic(_b, this.aim, 95, 9, _c); this.shoot(_b, _c, 95, 9, 120, p, 4, 8, 0xffffff, 0.6); audio.shot('launcher', 0); this.shake = 0.4; } }
+        if (v.model.turret) { v.model.turret.rotation.y = this.camYaw - v.yaw; v.model.elev.rotation.x = -clamp(this.camPitch + 0.06, -0.12, 0.45); if (inp.fire && v.cd <= 0) { v.cd = 1.7; v.model.kick = 1; this.puff(v.pos.x + Math.sin(this.camYaw) * 5.2, v.pos.y + 2.4, v.pos.z + Math.cos(this.camYaw) * 5.2, 9, 0xffffff, 3, 0.7); _b.set(v.pos.x + Math.sin(this.camYaw) * 4, v.pos.y + 2.1, v.pos.z + Math.cos(this.camYaw) * 4); this.ballistic(_b, this.aim, 95, 9, _c); this.shoot(_b, _c, 95, 9, 120, p, 4, 8, 0xffffff, 0.6); audio.shot('launcher', 0); this.shake = 0.4; } }
         if (inp.take('use')) this.exitVehicle(p);
       } else {
         const fx = Math.sin(this.camYaw), fz = Math.cos(this.camYaw);

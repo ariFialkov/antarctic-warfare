@@ -11,6 +11,8 @@ export const store = {
   save() { try { localStorage.setItem(KEY, JSON.stringify(this.data)); } catch (e) { /* storage full or blocked */ } },
   get profile() { return this.data.slots[this.data.active] || null; },
 };
+// one shared wallet + callsign for every mode; save slots hold Open World characters only
+if (!store.data.account) { const a = store.data.slots.find(Boolean); store.data.account = { name: a ? a.name : '', coins: a ? Math.max(...store.data.slots.filter(Boolean).map(x => x.coins || 0)) : 1000, faction: a ? a.faction : 'penguins', cls: a ? a.cls : 'rifleman', stats: { kills: 0, wins: 0, games: 0 } }; }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = id => document.getElementById(id);
 const STAKES = [25, 50, 100, 250, 500], PLAYABLE = ['penguins', 'seals', 'orcas'];
@@ -24,18 +26,18 @@ export class UI {
     this.root.addEventListener('click', e => { const el = e.target.closest('[data-act]'); if (!el) return; audio.init(); audio.ui(); const fn = this['act_' + el.dataset.act]; if (fn) fn.call(this, el.dataset, el); });
     const rs = () => { const d = Math.min(devicePixelRatio, 2); this.ov.width = innerWidth * d; this.ov.height = innerHeight * d; this.ovd = d; }; rs(); addEventListener('resize', rs);
   }
-  get p() { return store.profile; }
+  get p() { return store.data.account; }
   html(h) { this.root.innerHTML = h; }
-  showHud(on) { this.hudEl.hidden = !on; if (on) { this.root.innerHTML = ''; this.overlay = null; $('feed').innerHTML = ''; $('toasts').innerHTML = ''; $('hudName').textContent = this.p.name; } else this.ovc.clearRect(0, 0, this.ov.width, this.ov.height); }
+  showHud(on) { this.hudEl.hidden = !on; if (on) { this.root.innerHTML = ''; this.overlay = null; $('feed').innerHTML = ''; $('toasts').innerHTML = ''; $('hudName').textContent = this.game.player ? this.game.player.name : ''; } else this.ovc.clearRect(0, 0, this.ov.width, this.ov.height); }
 
   // ---------- profile slots ----------
   showSlots() {
     const s = store.data.slots;
-    this.html(`<div class="screen center"><div class="card wide"><h2>Choose your soldier</h2><p class="muted">Three save slots, stored on this device.</p><div class="slots">${s.map((p, i) => p
-      ? `<div class="slot full" style="border-color:${FACTIONS[p.faction].css}"><span style="font-size:34px">${EMOJI[p.faction]}</span><b>${esc(p.name)}</b><span class="muted">${FACTIONS[p.faction].name} · ${CLASSES[p.faction].find(c => c.id === p.cls).name}</span><span class="coin">${p.coins}</span><span class="grow"></span><div class="row"><button class="btn sm grow" data-act="slot" data-i="${i}">Play</button><button class="btn sm ghost" data-act="del" data-i="${i}">Delete</button></div></div>`
+    this.html(`<div class="screen center"><div class="card wide"><div class="row"><h2 class="grow">🗺️ Open World</h2><button class="btn sm ghost" data-act="menu">Back</button></div><p class="muted">Pick a character to continue their story, or enlist a new one. Three save slots, stored on this device.</p><div class="slots">${s.map((p, i) => p
+      ? `<div class="slot full" style="border-color:${FACTIONS[p.faction].css}"><span style="font-size:34px">${EMOJI[p.faction]}</span><b>${esc(p.name)}</b><span class="muted">${FACTIONS[p.faction].name} · ${CLASSES[p.faction].find(c => c.id === p.cls).name}</span><span class="muted">${p.stats.kills} takedowns · ${p.stats.banked} banked</span><span class="grow"></span><div class="row"><button class="btn sm grow" data-act="slot" data-i="${i}">Play</button><button class="btn sm ghost" data-act="del" data-i="${i}">Delete</button></div></div>`
       : `<button class="slot" data-act="new" data-i="${i}"><span style="font-size:34px">＋</span><b>Empty slot</b><span class="muted">Enlist a new character</span></button>`).join('')}</div></div></div>`);
   }
-  act_slot(d) { store.data.active = +d.i; store.save(); this.showMenu(); }
+  act_slot(d) { store.data.active = +d.i; store.save(); this.game.start(new OpenWorldMode({ profile: store.profile, wallet: this.p, save: () => store.save() })); }
   act_del(d, el) { if (el.dataset.sure) { store.data.slots[+d.i] = null; if (store.data.active === +d.i) store.data.active = -1; store.save(); this.showSlots(); } else { el.dataset.sure = 1; el.textContent = 'Sure?'; el.classList.add('red'); el.classList.remove('ghost'); } }
   act_new(d) { this.setup = { kind: 'new', slot: +d.i, faction: 'penguins', cls: 'rifleman', name: '' }; this.showCreate(); }
   factionPick(sel) { return `<div class="pick">${PLAYABLE.map(f => `<button class="opt ${f === sel ? 'on' : ''}" style="--sel:${FACTIONS[f].css}" data-act="fac" data-f="${f}"><b>${EMOJI[f]} ${FACTIONS[f].name}</b>${FACTIONS[f].blurb}</button>`).join('')}</div>`; }
@@ -48,15 +50,15 @@ export class UI {
   act_fac(d) { const s = this.setup; s.faction = d.f; s.cls = CLASSES[d.f][0].id; this.refreshSetup(); }
   act_cls(d) { this.setup.cls = d.c; this.refreshSetup(); }
   refreshSetup() { if (this.setup.kind === 'new') this.showCreate(); else this.showSetup(); }
-  act_create() { const s = this.setup, name = ($('nameIn').value || '').trim() || 'Recruit' + Math.floor(Math.random() * 900 + 100); store.data.slots[s.slot] = { name, faction: s.faction, cls: s.cls, coins: 1000, stats: { kills: 0, wins: 0, games: 0, banked: 0 }, pos: null }; store.data.active = s.slot; store.save(); this.showMenu(); }
+  act_create() { const s = this.setup, name = ($('nameIn').value || '').trim() || 'Recruit' + Math.floor(Math.random() * 900 + 100); store.data.slots[s.slot] = { name, faction: s.faction, cls: s.cls, stats: { kills: 0, wins: 0, games: 0, banked: 0 }, pos: null }; this.act_slot({ i: s.slot }); }
 
   // ---------- main menu ----------
   showMenu() {
-    const p = this.p; if (!p) return this.showSlots(); const F = FACTIONS[p.faction];
+    const p = this.p;
     this.html(`<div class="screen"><div class="menu-head"><div class="logo"><span>ANTARCTIC</span><b>WARFARE</b></div>
-      <div class="row"><span class="chip"><i class="dot" style="background:${F.css}"></i>${esc(p.name)} · ${F.name}</span><span class="chip"><span class="coin">${p.coins}</span></span><button class="btn sm ghost" data-act="slots">Switch</button></div></div>
+      <div class="row"><span class="chip"><span class="coin">${p.coins}</span></span></div></div>
       <div class="modes">
-        <button class="mode" data-act="open"><i style="background:var(--teal)"></i><span class="ico">🗺️</span><b>Open World</b><small>Roam all of Antarctica. Run staked sorties, complete missions, jump rival patrols, bank your loot.</small></button>
+        <button class="mode" data-act="open"><i style="background:var(--teal)"></i><span class="ico">🗺️</span><b>Open World</b><small>Roam all of Antarctica with a saved character. Run staked sorties, complete missions, jump rival patrols, bank your loot.</small></button>
         <button class="mode" data-act="setup" data-k="skirmish"><i style="background:var(--orange)"></i><span class="ico">⚔️</span><b>Skirmish</b><small>Quick 8v8 battle against a random opponent at a random location. Winner doubles their stake.</small></button>
         <button class="mode" data-act="setup" data-k="br"><i style="background:var(--purple)"></i><span class="ico">👑</span><b>Battle Royale</b><small>${BR_PLAYERS} animals, one shrinking blizzard. Top 5 get paid, last one standing takes 8×.</small></button>
       </div>
@@ -65,12 +67,12 @@ export class UI {
   act_relief() { if (this.p.coins < 25) { this.p.coins += 500; store.save(); audio.coin(); } this.showMenu(); }
   act_fs() { const d = document.documentElement; if (document.fullscreenElement) document.exitFullscreen(); else (d.requestFullscreen || d.webkitRequestFullscreen || (() => { })).call(d); }
   act_menu() { if (this.game.mode) this.game.stop(); this.game.paused = false; this.showMenu(); }
-  act_open() { this.game.start(new OpenWorldMode({ profile: this.p, save: () => store.save() })); }
+  act_open() { this.showSlots(); }
   act_setup(d) { const p = this.p; this.setup = { kind: d.k, faction: p.faction, cls: p.cls, stake: Math.min(100, STAKES.filter(s => s <= p.coins).pop() || 25), lobby: 'all' }; this.showSetup(); }
   showSetup() {
-    const s = this.setup, p = this.p, br = s.kind === 'br';
+    const s = this.setup, p = this.p, br = s.kind === 'br'; if ($('nameIn')) p.name = $('nameIn').value;
     this.html(`<div class="screen center"><div class="card wide"><div class="row"><h2 class="grow">${br ? '👑 Battle Royale' : '⚔️ Skirmish'}</h2><span class="chip"><span class="coin">${p.coins}</span></span></div>
-      <h3 style="margin-top:10px">Faction</h3>${this.factionPick(s.faction)}<h3>Role</h3>${this.classPick(s.faction, s.cls)}
+      <input id="nameIn" type="text" maxlength="14" placeholder="Callsign" value="${esc(p.name || '')}" style="margin-top:10px"><h3 style="margin-top:10px">Faction</h3>${this.factionPick(s.faction)}<h3>Role</h3>${this.classPick(s.faction, s.cls)}
       ${br ? `<h3>Lobby</h3><div class="tabs"><button class="opt ${s.lobby === 'all' ? 'on' : ''}" data-act="lobby" data-l="all"><b>All Animals</b></button><button class="opt ${s.lobby === 'own' ? 'on' : ''}" data-act="lobby" data-l="own"><b>${FACTIONS[s.faction].name} Only</b></button></div>` : ''}
       <h3>Stake</h3><div class="tabs">${STAKES.map(v => `<button class="opt ${v === s.stake ? 'on' : ''}" data-act="stake" data-v="${v}" ${v > p.coins ? 'disabled style="opacity:.4"' : ''}><b><span class="coin">${v}</span></b></button>`).join('')}</div>
       <p class="muted">${br ? `Payouts: 1st ${BR_TABLE[0][2]}× · 2nd ${BR_TABLE[1][2]}× · 3rd ${BR_TABLE[2][2]}× · 4th–5th stake back.` : `Victory pays ${SKIRMISH_PAY}× your stake.`}</p>
@@ -80,11 +82,12 @@ export class UI {
   act_stake(d) { if (+d.v <= this.p.coins) { this.setup.stake = +d.v; this.showSetup(); } }
   act_deploy() {
     const s = this.setup, p = this.p; if (s.stake > p.coins) return;
+    p.name = (($('nameIn') ? $('nameIn').value : p.name) || '').trim() || 'Recruit' + Math.floor(Math.random() * 900 + 100); p.faction = s.faction; p.cls = s.cls;
     p.coins -= s.stake; p.stats.games++; store.save();
     const fate = rollFate(s.kind), n = s.kind === 'br' ? BR_PLAYERS - 1 : 15, g = this.game;
     this.html(`<div class="overlay"><div class="card mm"><h2 id="mmT">Searching for players…</h2><p class="muted">${s.kind === 'br' ? (s.lobby === 'own' ? FACTIONS[s.faction].name + ' only lobby' : 'All animals lobby') : 'Random opponent · random location'} · region: South Pole</p><ul id="mmL"><li class="me">${esc(p.name)}<span>${EMOJI[s.faction]}</span></li></ul></div></div>`);
     let i = 0; const idx0 = g.nameIdx;
-    const step = () => { if (!$('mmL')) return; if (i < n) { const k = 1 + Math.floor(Math.random() * 3); for (let j = 0; j < k && i < n; j++, i++) { const li = document.createElement('li'); li.innerHTML = `${esc(g.botName())}<span>${Math.floor(18 + Math.random() * 60)}ms</span>`; $('mmL').appendChild(li); } setTimeout(step, 120 + Math.random() * 380); } else { $('mmT').textContent = 'Match found!'; audio.coin(); g.nameIdx = idx0; setTimeout(() => { if ($('mmL')) g.start(new (s.kind === 'br' ? BRMode : SkirmishMode)({ faction: s.faction, cls: s.cls, stake: s.stake, lobby: s.lobby, fate, profile: p })); }, 900); } };
+    const step = () => { if (!$('mmL')) return; if (i < n) { const k = 1 + Math.floor(Math.random() * 3); for (let j = 0; j < k && i < n; j++, i++) { const li = document.createElement('li'); li.innerHTML = `${esc(g.botName())}<span>${Math.floor(18 + Math.random() * 60)}ms</span>`; $('mmL').appendChild(li); } setTimeout(step, 120 + Math.random() * 380); } else { $('mmT').textContent = 'Match found!'; audio.coin(); g.nameIdx = idx0; setTimeout(() => { if ($('mmL')) g.start(new (s.kind === 'br' ? BRMode : SkirmishMode)({ faction: s.faction, cls: s.cls, stake: s.stake, lobby: s.lobby, fate, profile: { name: p.name } })); }, 900); } };
     setTimeout(step, 500);
   }
   result(o) {

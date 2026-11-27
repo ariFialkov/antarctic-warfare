@@ -19,6 +19,7 @@ export function rollFate(kind) {
 }
 
 function revive(g, c, x, z) {
+  if (c.waterOnly) { const wp = g.world.waterPointNear(x, z); if (wp) { x = wp.x; z = wp.z; } }
   c.alive = true; c.hp = c.maxHp; c.pos.set(x, g.world.ground(x, z), z); c.vel.set(0, 0, 0); c.deadT = 0; c.inv = 2.5; c.reload = 0; c.model.tilt.rotation.set(0, 0, 0); c.model.root.visible = true;
   for (const w of c.weapons) w.ammo = w.def.mag;
 }
@@ -30,24 +31,26 @@ export class SkirmishMode {
   constructor(o) { Object.assign(this, o); this.kind = 'skirmish'; }
   start() {
     const g = this.game, w = g.world, r = Math.random;
-    const loc = this.loc = pick(w.locs.filter(l => l.size >= 2)); this.enemyF = pick(ENEMY_OF[this.faction]); this.variant = r() < 0.5 ? 'classic' : 'objective';
+    this.enemyF = pick(ENEMY_OF[this.faction]); const wet = this.faction === 'orcas' || this.enemyF === 'orcas'; // orcas fight where there are canals
+    const loc = this.loc = pick(w.locs.filter(l => wet ? l.arch : l.size >= 2 && !l.arch)), A = loc.arch; this.variant = r() < 0.5 ? 'classic' : 'objective';
+    this.obj = A ? { x: loc.x + Math.sin(loc.seaA) * (A.r0 + 11), y: 0.5, z: loc.z + Math.cos(loc.seaA) * (A.r0 + 11) } : { x: loc.x, y: loc.y + 0.4, z: loc.z };
     this.bounds = { x: loc.x, z: loc.z, r: 165 }; this.t = 0; this.limit = 240; this.tick = 0; this.tickets = { A: 30, B: 30 }; this.queue = []; this.hold = 0; this.holder = null; this.b = 0; this.reinf = 0; this.fsT = 0; this.pace = 1; this.playerEvade = 1.3;
     this.winner = this.fate.win ? 'A' : 'B'; this.loser = this.fate.win ? 'B' : 'A';
-    let ang = 0; for (let i = 0; i < 24; i++) { ang = r() * 6.28; if (w.h(loc.x + Math.sin(ang) * 90, loc.z + Math.cos(ang) * 90) > 1.2 && w.h(loc.x - Math.sin(ang) * 90, loc.z - Math.cos(ang) * 90) > 1.2) break; }
+    let ang = 0; for (let i = 0; i < 24; i++) { ang = r() * 6.28; if (A || (w.h(loc.x + Math.sin(ang) * 90, loc.z + Math.cos(ang) * 90) > 1.2 && w.h(loc.x - Math.sin(ang) * 90, loc.z - Math.cos(ang) * 90) > 1.2)) break; }
     this.base = { A: { x: loc.x + Math.sin(ang) * 90, z: loc.z + Math.cos(ang) * 90 }, B: { x: loc.x - Math.sin(ang) * 90, z: loc.z - Math.cos(ang) * 90 } };
     const sp = (team) => w.landPointNear(this.base[team].x, this.base[team].z, 0, 14, r, true);
     let p = sp('A'); g.player = g.spawn({ faction: this.faction, cls: this.cls, team: 'A', name: this.profile.name, isPlayer: true, x: p.x, z: p.z }); g.camYaw = ang + Math.PI; g.camPitch = 0;
     const aux = r() < 0.3;
     for (let i = 0; i < 7; i++) { p = sp('A'); this.addBot('A', aux && i > 4 ? 'albatross' : this.faction, p); }
     for (let i = 0; i < 8; i++) { p = sp('B'); this.addBot('B', this.enemyF, p); }
-    this.ring = new THREE.Mesh(new THREE.TorusGeometry(15, 0.35, 6, 48), new THREE.MeshBasicMaterial({ color: 0xffffff })); this.ring.rotation.x = Math.PI / 2; this.ring.position.set(loc.x, loc.y + 0.4, loc.z); this.ring.visible = this.variant === 'objective'; g.scene.add(this.ring);
+    this.ring = new THREE.Mesh(new THREE.TorusGeometry(15, 0.35, 6, 48), new THREE.MeshBasicMaterial({ color: 0xffffff })); this.ring.rotation.x = Math.PI / 2; this.ring.position.set(this.obj.x, this.obj.y, this.obj.z); this.ring.visible = this.variant === 'objective'; g.scene.add(this.ring);
     const OBJ = { penguins: 'Hold the Avalanche battery site', seals: 'Secure the breach point', orcas: 'Hold the Super-Calver dig site' };
     this.objective = this.variant === 'objective' ? OBJ[this.faction] + ' (the ring) to drain enemy reinforcements' : 'Classic battle: wipe out enemy reinforcements';
     g.ui.toast(`${loc.name} — ${FACTIONS[this.faction].name} vs ${FACTIONS[this.enemyF].name}`); if (aux) g.ui.toast('Albatross auxiliaries have joined your side');
   }
   addBot(team, faction, p, name) { const c = this.game.spawn({ faction, team, x: p.x, z: p.z, name }); c.ai.rush = true; c.ai.sight = 90; return c; }
   dispose() { this.game.scene.remove(this.ring); }
-  botGoal(c) { const l = this.loc, w = this.game.world; if (this.variant === 'objective' || Math.random() < 0.6) return w.landPointNear(l.x, l.z, 0, this.variant === 'objective' ? 13 : 45, Math.random, true); const e = this.base[c.team === 'A' ? 'B' : 'A']; return w.landPointNear(e.x, e.z, 10, 45, Math.random, true); }
+  botGoal(c) { const l = this.variant === 'objective' ? this.obj : this.loc, w = this.game.world; if (this.variant === 'objective' || Math.random() < 0.6) return w.landPointNear(l.x, l.z, 0, this.variant === 'objective' ? 13 : 45, Math.random, true); const e = this.base[c.team === 'A' ? 'B' : 'A']; return w.landPointNear(e.x, e.z, 10, 45, Math.random, true); }
   filterDamage(v, amt, a) { return v.isPlayer ? amt * 0.55 : a && a.ai ? amt * 0.5 * this.pace : amt; }
   onKill(v) {
     if (this.over) return; this.tickets[v.team] = Math.max(0, this.tickets[v.team] - 1);
@@ -69,7 +72,7 @@ export class SkirmishMode {
     if (!p.alive) { this.respawnT -= dt; if (this.respawnT <= 0) { const s = g.world.landPointNear(this.base.A.x, this.base.A.z, 0, 12, Math.random, true); revive(g, p, s.x, s.z); } }
     this.tick -= dt; if (this.tick > 0) return; this.tick = 1;
     if (this.variant === 'objective') {
-      let a = 0, b = 0; for (const c of g.chars) if (c.alive && dist2(c.pos, this.loc) < 15) c.team === 'A' ? a++ : b++;
+      let a = 0, b = 0; for (const c of g.chars) if (c.alive && dist2(c.pos, this.obj) < 15 + c.r) c.team === 'A' ? a++ : b++;
       const h = a > b ? 'A' : b > a ? 'B' : null; if (h !== this.holder) { this.holder = h; this.hold = 0; } this.ring.material.color.set(h === 'A' ? 0x3aa0ff : h === 'B' ? 0xff4a4a : 0xffffff);
       if (h && ++this.hold >= 6) { this.hold = 0; const e = h === 'A' ? 'B' : 'A'; this.tickets[e] = Math.max(0, this.tickets[e] - 1); this.guard(); if (this.over) return; }
     }
@@ -89,7 +92,7 @@ export class SkirmishMode {
     g.ui.result({ title: win ? 'VICTORY' : 'DEFEAT', win, sub: `${this.loc.name} · ${this.tickets.A} – ${this.tickets.B}`, payout: Math.round(this.stake * this.fate.mult), stake: this.stake, kills: g.player.kills });
   }
   hud() { return { top: `<b class="ally">${this.tickets.A}</b><span>${fmtT(Math.max(0, this.limit - this.t))}</span><b class="enemy">${this.tickets.B}</b>`, objective: this.objective, dead: !this.game.player.alive ? `Redeploying in ${Math.ceil(Math.max(0, this.respawnT))}…` : null }; }
-  markers() { return this.variant === 'objective' ? [{ x: this.loc.x, z: this.loc.z, col: '#ffd23a' }] : []; }
+  markers() { return this.variant === 'objective' ? [{ x: this.obj.x, z: this.obj.z, col: '#ffd23a' }] : []; }
 }
 const fmtT = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -98,11 +101,11 @@ export class BRMode {
   constructor(o) { Object.assign(this, o); this.kind = 'br'; }
   start() {
     const g = this.game, w = g.world, r = Math.random, N = BR_PLAYERS, P = this.fate.place;
-    const loc = this.loc = pick(w.locs.filter(l => l.size >= 2)); this.R0 = 230; this.zone = { x: loc.x, z: loc.z, r: this.R0 }; this.bounds = { x: loc.x, z: loc.z, r: this.R0 + 25 };
+    const wetP = this.faction === 'orcas', loc = this.loc = pick(w.locs.filter(l => wetP ? l.arch : l.size >= 2)); this.R0 = 230; this.zone = { x: loc.x, z: loc.z, r: this.R0 }; this.bounds = { x: loc.x, z: loc.z, r: this.R0 + 25 };
     const fa = r() * 6.28, fd = r() * 70; this.final = { x: loc.x + Math.cos(fa) * fd, z: loc.z + Math.sin(fa) * fd };
     this.t = 0; this.tick = 0; this.elimT = 6; this.hunt = null; this.duelT = 0; this.playerEvade = 2.6;
     this.tP = lerp(45, 200, Math.pow((N - P) / (N - 1), 0.75)) * (0.9 + r() * 0.2);
-    const pool = ['penguins', 'penguins', 'penguins', 'seals', 'seals', 'seals', 'orcas', 'orcas', 'orcas', 'walrus', 'albatross'];
+    const pool = ['penguins', 'penguins', 'penguins', 'seals', 'seals', 'seals', 'walrus', 'albatross'].concat(loc.arch ? ['orcas', 'orcas', 'orcas', 'orcas'] : []);
     const sp = () => w.landPointNear(loc.x, loc.z, 40, this.R0 * 0.92, r, true);
     let s = sp(); g.player = g.spawn({ faction: this.faction, cls: this.cls, team: 'P', name: this.profile.name, isPlayer: true, x: s.x, z: s.z }); g.camYaw = Math.atan2(loc.x - s.x, loc.z - s.z);
     for (let i = 1; i < N; i++) { s = sp(); const c = g.spawn({ faction: this.lobby === 'own' ? this.faction : pick(pool), team: 'T' + i, x: s.x, z: s.z }); c.ai.sight = 60; c.ai.noStrike = true; }
@@ -192,7 +195,7 @@ export class OpenWorldMode {
     const g = this.game, n = 2 + l.size * 2;
     for (let i = 0; i < n; i++) { const p = g.world.landPointNear(l.x, l.z, 6, l.R * 0.9); const c = g.spawn({ faction: l.f, team: l.f, x: p.x, z: p.z, home: { x: l.x, z: l.z, r: l.R * 0.9 }, tag: l.id }); c.loc = l; }
   }
-  squad(faction, x, z, n, home, team) { const out = []; for (let i = 0; i < n; i++) { const p = this.game.world.landPointNear(x, z, 0, 8, Math.random, true); const c = this.game.spawn({ faction, team: team || faction, x: p.x, z: p.z, home: home || { x, z, r: 25 } }); out.push(c); } return out; }
+  squad(faction, x, z, n, home, team) { const out = []; if (faction === 'orcas' && !this.game.world.waterPointNear(x, z, 140)) faction = this.faction === 'seals' ? 'penguins' : 'seals'; for (let i = 0; i < n; i++) { const p = this.game.world.landPointNear(x, z, 0, 8, Math.random, true); const c = this.game.spawn({ faction, team: team || faction, x: p.x, z: p.z, home: home || { x, z, r: 25 } }); out.push(c); } return out; }
   filterDamage(v, amt, a) { if (v.ai && a && a.ai) return amt * 0.5; if (v.isPlayer && !(this.sortie && this.sortie.bust)) return amt * 0.6; return amt; }
   vetoDeath(v) {
     if (!v.isPlayer || !this.sortie || this.sortie.bust) return false;
@@ -214,10 +217,10 @@ export class OpenWorldMode {
     for (let i = 0; i < 3; i++) { const pt = g.world.landPointNear(p.pos.x + Math.cos(a + i * 2.1) * 70, p.pos.z + Math.sin(a + i * 2.1) * 70, 0, 8, Math.random, true); const c = g.spawn({ faction: 'walrus', team: 'hunters', x: pt.x, z: pt.z, name: 'Bounty Hunter ' + pick(['Odo', 'Bjorn', 'Tusk', 'Gunnar', 'Ivar', 'Sven']) }); c.ai.forced = p; c.ai.sight = 400; c.accMul = 0.35; c.resist = 0.15; c.floorHp = 1; c.dmgMul = 0.7; c.ai.rush = true; s.bust.hunters.push(c); }
     this.playerEvade = 1;
   }
-  bank() { const s = this.sortie; if (!s || s.bust) return 0; const v = this.loot(); this.profile.coins += v; this.profile.stats.banked += v; this.sortie = null; this.mission = null; this.game.beacon.visible = false; this.save(); audio.win(); return v; }
+  bank() { const s = this.sortie; if (!s || s.bust) return 0; const v = this.loot(); this.wallet.coins += v; this.profile.stats.banked += v; this.sortie = null; this.mission = null; this.game.beacon.visible = false; this.save(); audio.win(); return v; }
   newMission() {
-    const g = this.game, w = g.world, p = g.player.pos, r = Math.random();
-    const far = (f) => { const c = w.locs.filter(l => f(l) && dist2(l, p) > 160 && dist2(l, p) < 900); return c.length ? pick(c) : null; };
+    const g = this.game, w = g.world, p = g.player.pos, wet = g.player.waterOnly; let r = Math.random(); if (wet && r >= 0.55 && r < 0.8) r = 0.9;
+    const far = (f) => { const c = w.locs.filter(l => f(l) && (!wet || l.arch || l.coastal) && dist2(l, p) > 160 && dist2(l, p) < 900); return c.length ? pick(c) : null; };
     let m = null;
     if (r < 0.3) { const n = 3 + Math.floor(Math.random() * 3); m = { type: 'bounty', n, done: 0, reward: 0.13 * n, text: `Bounty: take down ${n} hostiles` }; }
     else if (r < 0.55) { const l = far(l => this.friendlyLoc(l)); if (l) m = { type: 'deliver', loc: l, reward: 0.2 + dist2(l, p) / 1000, text: `Deliver supplies to ${l.name}` }; }
@@ -232,7 +235,8 @@ export class OpenWorldMode {
     if (k && k.isPlayer) { this.profile.stats.kills++; if (s && !s.bust) { const m = this.mission; s.kills++; this.award(0.04, `${v.name} down`); if (this.sortie && !this.sortie.bust && m && m === this.mission) { if (m.type === 'bounty' && ++m.done >= m.n) this.completeMission(); else if (m.type === 'raid' && v.tag === m.loc.id && ++m.done >= m.n) this.completeMission(); } } }
     if (this.battle && this.battle.foes.includes(v) && this.battle.foes.every(c => !c.alive)) { g.ui.toast('⚔ Battle won! The line holds.'); this.battle = null; this.award(0.3, 'Battle bonus'); }
   }
-  onUse() { const g = this.game, p = g.player, l = g.world.nearestLoc(p.pos.x, p.pos.z); if (dist2(l.board, p.pos) < 6) { if (this.friendlyLoc(l)) g.ui.openBoard(this, l); else g.ui.toast("This board belongs to a hostile faction."); } }
+  reach() { return this.game.player.waterOnly ? 17 : 6; }
+  onUse() { const g = this.game, p = g.player, l = g.world.nearestLoc(p.pos.x, p.pos.z); if (dist2(l.board, p.pos) < this.reach()) { if (this.friendlyLoc(l)) g.ui.openBoard(this, l); else g.ui.toast("This board belongs to a hostile faction."); } }
   update(dt) {
     const g = this.game, w = g.world, p = g.player; this.t += dt;
     if (!p.alive) { this.respawnT -= dt; if (this.respawnT <= 0) { const l = w.nearestLoc(p.pos.x, p.pos.z, l => this.friendlyLoc(l) && l.f === this.faction) || w.locById[FACTIONS[this.faction].home]; revive(g, p, l.board.x, l.board.z + 7); g.ui.toast(`Recovered at ${l.name}`); } }
@@ -250,12 +254,12 @@ export class OpenWorldMode {
     if (this.battleT <= 0 && p.alive && !this.battle && g.chars.length < 30) { this.battleT = 100 + Math.random() * 70; const a = Math.random() * 6.28, bx = p.pos.x + Math.sin(a) * 130, bz = p.pos.z + Math.cos(a) * 130, ef = pick(ENEMY_OF[this.faction]); const home = { x: bx, z: bz, r: 22 }; this.squad(this.faction, bx - 14, bz, 4, home); this.battle = { x: bx, z: bz, foes: this.squad(ef, bx + 14, bz, 5, home) }; g.ui.toast(`⚔ ${FACTIONS[ef].name} are attacking near ${w.nearestLoc(bx, bz).name}! Your faction needs you.`); }
     if (this.battle && dist2(this.battle, p.pos) > 420) this.battle = null;
     const m = this.mission;
-    if (m && m.loc) { g.beacon.visible = true; g.beacon.position.set(m.loc.x, m.loc.y + 150, m.loc.z); if ((m.type === 'deliver' || m.type === 'recon') && dist2(m.loc, p.pos) < 32) this.completeMission(); } else g.beacon.visible = false;
+    if (m && m.loc) { g.beacon.visible = true; g.beacon.position.set(m.loc.x, m.loc.y + 150, m.loc.z); if ((m.type === 'deliver' || m.type === 'recon') && dist2(m.loc, p.pos) < (p.waterOnly ? m.loc.R + 75 : 32)) this.completeMission(); } else g.beacon.visible = false;
     this.saveT -= 0.5; if (this.saveT <= 0) { this.saveT = 10; this.savePos(); }
   }
   hud() {
     const g = this.game, p = g.player, s = this.sortie, m = this.mission, l = g.world.nearestLoc(p.pos.x, p.pos.z); let prompt = null;
-    if (p.alive) { if (p.vehicle) prompt = 'Exit vehicle'; else if (g.vehicles.some(v => !v.driver && v.pos.distanceTo(p.pos) < 4.5)) prompt = 'Drive'; else if (dist2(l.board, p.pos) < 6) prompt = 'Mission Board'; }
+    if (p.alive) { if (p.vehicle) prompt = 'Exit vehicle'; else if (!p.waterOnly && g.vehicles.some(v => !v.driver && v.pos.distanceTo(p.pos) < 4.5)) prompt = 'Drive'; else if (dist2(l.board, p.pos) < this.reach()) prompt = 'Mission Board'; }
     return { top: s ? `<span>💰 Loot ${this.loot()}</span><span>×${s.mult.toFixed(2)}</span><span>Stake ${s.stake}</span>` : `<span>Free roam</span><span>${dist2(l, p.pos) < l.R * 1.6 ? l.name : 'The Ice'}</span>`,
       objective: s ? (s.bust ? '⚠ Bounty hunters inbound. Survive!' : m ? m.text + (m.n ? ` (${m.done}/${m.n})` : '') + (m.loc ? ` · ${Math.round(dist2(m.loc, p.pos))}m` : '') : '') : 'Explore, or start a sortie at a friendly Mission Board',
       dead: !p.alive ? `Recovering in ${Math.ceil(Math.max(0, this.respawnT))}…` : null, prompt };

@@ -20,7 +20,7 @@ function boot() {
   const loop = (t) => { requestAnimationFrame(loop); const dt = (t - last) / 1000; last = t; game.frame(dt); };
   requestAnimationFrame(loop);
   loading.style.opacity = 0; setTimeout(() => loading.remove(), 700);
-  if (store.profile) ui.showMenu(); else ui.showSlots();
+  ui.showMenu();
 }
 // let the loading screen paint before the (synchronous) world generation
 requestAnimationFrame(() => setTimeout(boot, 30));

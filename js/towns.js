@@ -236,7 +236,8 @@ export function buildLocation(loc, world) {
   const fixed = ship || lm === 'volcano', reserve = Math.min(26, R * 0.45);
   k.at(0, 0, 0, fixed ? 0 : r() * 6.283, () => LANDMARKS[lm](k, r, ac, sea, mound));
   const placed = [{ x: 0, z: 0, r: reserve }];
-  const spot = (rad, tries = 30) => { for (let i = 0; i < tries; i++) { const a = r() * 6.283, lo = reserve + rad, hi = R - 3 - rad * 0.6; if (hi <= lo) return null; const d = lo + r() * (hi - lo), x = Math.cos(a) * d, z = Math.sin(a) * d; if (placed.every(p => Math.hypot(p.x - x, p.z - z) > p.r + rad)) { placed.push({ x, z, r: rad }); return { x, z, d, a: Math.atan2(-x, -z) + (r() - 0.5) * 0.6 }; } } return null; };
+  const A = loc.arch, dry = (x, z, rad) => { for (const [ox, oz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) if (world.h(loc.x + x + ox * (rad + 1.5), loc.z + z + oz * (rad + 1.5)) < 1.3) return false; return true; };
+  const spot = (rad, tries = 30) => { if (A) tries *= 3; for (let i = 0; i < tries; i++) { const a = r() * 6.283, lo = A ? 4 : reserve + rad, hi = R - 3 - rad * 0.6; if (hi <= lo) return null; const d = lo + r() * (hi - lo), x = Math.cos(a) * d, z = Math.sin(a) * d; if (placed.every(p => Math.hypot(p.x - x, p.z - z) > p.r + rad) && (!A || dry(x, z, rad))) { placed.push({ x, z, r: rad }); return { x, z, d, a: Math.atan2(-x, -z) + (r() - 0.5) * 0.6 }; } } return null; };
   const prop = (name, x, z, a) => kd.at(x, 0, z, a, () => P[name](kd, r, ac));
   // plaza under the landmark, ringed with lamps and bunting
   if (!ship) {
@@ -251,7 +252,7 @@ export function buildLocation(loc, world) {
   // buildings (major mesh) dressed with paths, smoke, drifts and neighbours' clutter (detail mesh)
   const dress = (s, rad, smokeH) => {
     const len = s.d - rad - reserve + 3, a = Math.atan2(-s.x, -s.z), m = (s.d + rad * 0.2 + reserve - 3) / 2 / s.d;
-    if (len > 1) kd.at(s.x * m, 0, s.z * m, a, () => kd.p('box', C.path, 0, 0.04, 0, 2.4, 0.08, len + rad * 0.8));
+    if (len > 1 && !A) kd.at(s.x * m, 0, s.z * m, a, () => kd.p('box', C.path, 0, 0.04, 0, 2.4, 0.08, len + rad * 0.8));
     for (let i = 0; i < 3; i++) { const b = s.a + Math.PI + (i - 1) * 0.9; kd.p('sphL', C.snow, s.x + Math.sin(b) * rad * 0.95, -0.1, s.z + Math.cos(b) * rad * 0.95, 3 + r() * 2, 1.2 + r(), 2.4 + r()); }
     if (smokeH) for (let i = 0; i < 4; i++) kd.p('sphL', SMOKE[i % 3], s.x + i * 0.5, smokeH + i * 1.3, s.z + i * 0.2, 0.8 + i * 0.45);
     for (let i = 0; i < 2; i++) { const b = s.a + (i ? 1 : -1) * (1.3 + r() * 0.6), d = rad + 2.4, x = s.x + Math.sin(b) * d, z = s.z + Math.cos(b) * d; if (Math.hypot(x, z) < R - 3 && placed.every(p => p === s.ref || Math.hypot(p.x - x, p.z - z) > p.r + 1.2)) { placed.push({ x, z, r: 1.6 }); prop(pick(FPROPS[f]), x, z, s.a + r() - 0.5); } }
@@ -285,11 +286,11 @@ export function buildLocation(loc, world) {
       else if (go(3)) { watchtower(k, s.x, s.z, 7 + r() * 3, ac, C.woodD); dress(s, 2.4, 0); }
     } else if (t < 0.7) { if (go(4)) { nest(k, s.x, s.z, 3 + r() * 8, ac); dress(s, 2.4, 0); } } else if (go(3)) { watchtower(k, s.x, s.z, 8, ac); dress(s, 2.4, 0); }
   };
-  const n = Math.max(4, Math.round([0, 7, 13, 22][loc.size] * (R / loc.full) ** 2));
+  const dens = Math.min(A ? 1.4 : 1, (R / loc.full) ** 2), n = Math.max(4, Math.round([0, 7, 13, 22][loc.size] * dens));
   for (let i = 0; i < n; i++) { const her = loc.heritage && i % 3 === 0; build(her ? loc.heritage : f, her && loc.heritage === 'seals'); }
   // main streets out to the road gates
   const dirs = loc.roadDirs || [];
-  for (const a of dirs) kd.at(0, 0, 0, a, () => { const L = R - reserve + 4; kd.p('box', C.path, 0, 0.03, reserve - 3 + L / 2, 5, 0.07, L); for (let z = reserve + 4; z < R - 6; z += 13) for (const sx of [-3.6, 3.6]) kd.at(sx, 0, z, sx > 0 ? -Math.PI / 2 : Math.PI / 2, () => P.lamp(kd)); kd.at(0, 0, R - 1, 0, () => gate(kd, f, ac)); });
+  if (!A) for (const a of dirs) kd.at(0, 0, 0, a, () => { const L = R - reserve + 4; kd.p('box', C.path, 0, 0.03, reserve - 3 + L / 2, 5, 0.07, L); for (let z = reserve + 4; z < R - 6; z += 13) for (const sx of [-3.6, 3.6]) kd.at(sx, 0, z, sx > 0 ? -Math.PI / 2 : Math.PI / 2, () => P.lamp(kd)); kd.at(0, 0, R - 1, 0, () => gate(kd, f, ac)); });
   // parked hardware and kind-specific set dressing
   for (let i = 0; i < loc.size; i++) { const s = spot(4.5, 20); if (s) prop(pick(HARDWARE[f]), s.x, s.z, r() * 6.283); }
   if (/Research|Base|Station/.test(loc.kind)) { for (let i = 0; i < 5; i++) { const s = spot(2, 12); if (s) prop(i < 3 ? 'solar' : 'mast', s.x, s.z, 0.4); } }
@@ -298,12 +299,19 @@ export function buildLocation(loc, world) {
   if (/Artillery|Fort|Garrison|Siege/.test(loc.kind)) for (let i = 0; i < 5; i++) { const s = spot(2.4, 12); if (s) prop(f === 'walrus' ? 'cannon' : f === 'penguins' ? 'mortar' : 'ammo', s.x, s.z, Math.atan2(s.x, s.z)); }
   if (/Rookery|Mystery/.test(loc.kind)) for (let i = 0; i < 8; i++) { const s = spot(1.8, 12); if (s) prop('eggNest', s.x, s.z, r() * 6); }
   // general clutter
-  const np = Math.max(10, Math.round((12 + loc.size * 9) * (R / loc.full) ** 2));
+  const np = Math.max(10, Math.round((12 + loc.size * 9) * dens));
   for (let i = 0; i < np; i++) { const s = spot(1.9, 12); if (s) prop(pick(FPROPS[f]), s.x, s.z, s.a + r() - 0.5); }
   for (let i = 0; i < 6 + loc.size * 3; i++) { const s = spot(1.4, 8); if (s) prop(i % 3 ? 'drift' : 'flagpole', s.x, s.z, r() * 6); }
   // perimeter: walls with towers for forts, scattered fences for villages; gaps at gates and the pier
   const open = dirs.concat(loc.mole ? [sa] : []), segs = Math.floor(6.283 * (R - 1) / 6.6), cover = fort ? 0.72 : 0.34;
-  for (let i = 0; i < segs; i++) { const a = i / segs * 6.283; if (angNear(a, open, 7 / R + 0.05)) continue; const run = Math.sin(i * 0.9 + loc.px) * 0.5 + 0.5; if (!fort && run > cover * 1.6) continue; if (fort && r() > cover) continue;
+  if (A) { // canal dressing: mooring posts round the island, rib gates over each canal mouth, boats at their moorings
+    const seg = 6.2832 / A.K;
+    for (let i = 0; i < Math.floor(6.283 * A.r0 / 8); i++) { const a = i * 8 / A.r0; kd.at(Math.sin(a) * (A.r0 - 1.2), 0, Math.cos(a) * (A.r0 - 1.2), a, () => { kd.p('cyl8', C.black, 0, 0.6, 0, 0.7, 1.2, 0.7).p('sphL', C.white, 0, 1.3, 0, 0.7).p('torus', ac, 0, 0.7, 0, 0.8, 0.8, 2, Math.PI / 2); if (i % 3 === 0) P.coralLamp(kd, r, ac); }); }
+    for (let j = 0; j < A.K; j++) { const a = sa + j * seg; for (const d of [A.r0 + 24, R - 2]) k.at(Math.sin(a) * d, -0.6, Math.cos(a) * d, a, () => { k.p('archL', C.white, 0, 0, 0, 27, 30, 12).p('archL', C.white, 0, 0, 2.4, 25, 26, 10).p('oct', C.cyan, 0, 15.4, 0, 1.6, 2.6, 1.6); k.collide(-13.5, 0, 1.4, 8); k.collide(13.5, 0, 1.4, 8); });
+      const b = a + seg / 2, wy = -loc.y; k.at(Math.sin(b) * (A.r0 + 11), wy, Math.cos(b) * (A.r0 + 11), b + Math.PI / 2, () => P[j % 2 ? 'skiff' : 'remora'](k, r, ac));
+      k.p('cone6', C.red, Math.sin(b) * (R + 12), wy + 0.6, Math.cos(b) * (R + 12), 1.2, 1.8, 1.2).p('cyl8', C.white, Math.sin(b) * (R + 12), wy + 0.1, Math.cos(b) * (R + 12), 1.5, 0.5, 1.5); }
+  }
+  else for (let i = 0; i < segs; i++) { const a = i / segs * 6.283; if (angNear(a, open, 7 / R + 0.05)) continue; const run = Math.sin(i * 0.9 + loc.px) * 0.5 + 0.5; if (!fort && run > cover * 1.6) continue; if (fort && r() > cover) continue;
     kd.at(Math.sin(a) * (R - 1), 0, Math.cos(a) * (R - 1), a, () => wallPiece(kd, f, ac, r));
     if (fort && i % Math.max(4, Math.round(segs / 7)) === 0) watchtower(k, Math.sin(a) * (R - 5), Math.cos(a) * (R - 5), 8, ac, f === 'penguins' ? C.steel : f === 'orcas' ? C.black : C.woodD); }
   // harbour: planked pier along the breakwater, moored boats, crane, beacon
@@ -317,7 +325,7 @@ export function buildLocation(loc, world) {
     for (let j = 0; j < 4; j++) k.p('cone6', C.red, (j % 2 ? 1 : -1) * 34, wy + 0.6, L + 6 + j * 9, 1.2, 1.8, 1.2).p('cyl8', C.white, (j % 2 ? 1 : -1) * 34, wy + 0.1, L + 6 + j * 9, 1.5, 0.5, 1.5);
   });
   // mission board
-  const bs = spot(3, 80) || { x: reserve + 3, z: 0 }, bk = kd;
+  const ba = sa + 0.6, bs = A ? { x: Math.sin(ba) * (A.r0 - 4), z: Math.cos(ba) * (A.r0 - 4) } : spot(3, 80) || { x: reserve + 3, z: 0 }, bk = kd;
   bk.p('box', C.woodD, bs.x - 1.6, 1.5, bs.z, 0.3, 3, 0.3).p('box', C.woodD, bs.x + 1.6, 1.5, bs.z, 0.3, 3, 0.3).p('box', C.tan, bs.x, 2.3, bs.z, 3.6, 2, 0.2).p('box', ac, bs.x, 3.5, bs.z, 4, 0.4, 0.5).p('box', C.red, bs.x - 0.8, 2.5, bs.z + 0.12, 0.8, 1, 0.05).p('box', C.white, bs.x + 0.6, 2.2, bs.z + 0.12, 1, 1.2, 0.05).p('cone4', ac, bs.x, 4.1, bs.z, 4.4, 0.9, 1.4, 0, 0).p('sphL', C.glow, bs.x - 1.9, 3.3, bs.z + 0.4, 0.5).p('sphL', C.glow, bs.x + 1.9, 3.3, bs.z + 0.4, 0.5);
   kd.collide(bs.x, bs.z, 1.9, 4); loc.board = { x: loc.x + bs.x, z: loc.z + bs.z };
   for (const kit of [k, kd]) for (const c of kit.cols) world.addCollider(loc.x + c.x, loc.z + c.z, c.r, loc.y + c.top);

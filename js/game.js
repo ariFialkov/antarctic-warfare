@@ -8,6 +8,7 @@ import { audio } from './audio.js';
 const V = () => new THREE.Vector3();
 const _a = V(), _b = V(), _c = V(), _n = V(), _d = new THREE.Object3D(), _col = new THREE.Color(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
 const angDiff = (a, b) => { let d = (a - b) % 6.2832; if (d > Math.PI) d -= 6.2832; if (d < -Math.PI) d += 6.2832; return d; };
+const CLIMB = 0.95, BODY = { seals: 1.3, walrus: 1.45, orcas: 2.1 }; // steepest walkable grade; body scale per faction
 const PREF = { melee: 0, shotgun: 11, flame: 9, auto: 26, semi: 32, sniper: 75, launcher: 38 };
 const VEH = { waddle: { max: 30, acc: 16, turn: 1.9, r: 1.3, cam: 7.5, resist: 0.8, seat: 0.75 }, gentoo: { max: 13, acc: 7, turn: 1.1, r: 2.6, cam: 11, resist: 0.3, seat: -9 }, manta: { max: 26, acc: 12, turn: 1.6, r: 1.8, cam: 8, resist: 0.7, seat: 0.5 } };
 
@@ -23,7 +24,8 @@ export class Game {
     this.chars = []; this.projs = []; this.puffs = []; this.strikes = []; this.vehicles = []; this.time = 0; this.mode = null; this.player = null;
     this.camYaw = 0; this.camPitch = 0; this.shake = 0; this.aim = V(); this.nameIdx = Math.floor(Math.random() * BOT_NAMES.length);
     const mk = (n, mat) => { const m = new THREE.InstancedMesh(new THREE.SphereGeometry(0.5, 8, 6), mat, n); m.frustumCulled = false; m.count = 0; m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3); this.scene.add(m); return m; };
-    this.projMesh = mk(260, new THREE.MeshBasicMaterial({ fog: false })); this.puffMesh = mk(420, new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.9 }));
+    this.projMesh = mk(260, new THREE.MeshBasicMaterial({ fog: false }));
+    this.outMesh = mk(260, new THREE.MeshBasicMaterial({ color: 0x0f2a52, side: THREE.BackSide, fog: false })); this.trailMesh = mk(260, new THREE.MeshBasicMaterial({ color: 0x1f6fd6, transparent: true, opacity: 0.55, depthWrite: false, fog: false })); this.puffMesh = mk(420, new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.9 }));
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 6, 40), new THREE.MeshBasicMaterial({ color: 0xff3a4a })); this.ring.rotation.x = Math.PI / 2; this.ring.visible = false; this.scene.add(this.ring);
     this.zoneMesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 160, 64, 1, true), new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false })); this.zoneMesh.visible = false; this.scene.add(this.zoneMesh);
     this.beacon = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 300, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide, fog: false })); this.beacon.visible = false; this.scene.add(this.beacon);
@@ -45,9 +47,11 @@ export class Game {
   // ---------- characters ----------
   spawn(o) {
     const F = FACTIONS[o.faction], def = CLASSES[o.faction].find(c => c.id === o.cls) || pick(CLASSES[o.faction]);
-    const model = makeChar(o.faction, def.id), m = model.metrics;
+    const model = makeChar(o.faction, def.id), m = model.metrics, sc = BODY[o.faction] || 1, wet = o.faction === 'orcas';
+    if (wet && this.world.h(o.x, o.z) > -1) { const wp = this.world.waterPointNear(o.x, o.z); if (wp) { o.x = wp.x; o.z = wp.z; } }
+    model.root.scale.setScalar(sc);
     const c = { faction: o.faction, cls: def, team: o.team ?? o.faction, name: o.name || this.botName(), isPlayer: !!o.isPlayer, pos: V().set(o.x, 0, o.z), vel: V(), yaw: o.yaw || Math.random() * 6.28, pitch: 0,
-      maxHp: Math.round(F.hp * def.hp), h: m.h, r: m.r, model, weapons: def.w.map(id => ({ id, def: WEAPONS[id], ammo: WEAPONS[id].mag })), cur: 0, cd: 0, reload: 0, specialCd: 3, alive: true, deadT: 0,
+      maxHp: Math.round(F.hp * def.hp), h: m.h * sc, r: m.r * sc, sc, waterOnly: wet, model, weapons: def.w.map(id => ({ id, def: WEAPONS[id], ammo: WEAPONS[id].mag })), cur: 0, cd: 0, reload: 0, specialCd: 3, alive: true, deadT: 0,
       dmgMul: 1, accMul: 1, resist: 1, floorHp: 0, onGround: true, swim: false, sliding: false, lastHit: -99, lastShot: -99, recoil: 0, swing: 0, flash: 0, inv: 0, dash: 0, vehicle: null, kills: 0, tag: o.tag || null,
       landSp: 6.4 * F.land * def.speed, swimSp: 5 * F.swim * def.speed };
     c.hp = c.maxHp; c.pos.y = this.world.ground(o.x, o.z);
@@ -63,15 +67,25 @@ export class Game {
   startReload(c) { const s = c.weapons[c.cur]; if (c.reload > 0 || s.def.type === 'melee' || s.ammo >= s.def.mag) return; c.reload = s.def.reload; }
 
   move(c, dt, mx, mz, sprint, jump) {
-    const w = this.world, h = w.h(c.pos.x, c.pos.z); c.swim = h < -0.6 && c.pos.y < 0.2;
+    const w = this.world; let h = w.h(c.pos.x, c.pos.z);
+    if (c.waterOnly) { if (h < -0.7) { c.wetX = c.pos.x; c.wetZ = c.pos.z; } else if (h > -0.3 && c.wetX != null) { c.pos.x = c.wetX; c.pos.z = c.wetZ; h = w.h(c.pos.x, c.pos.z); c.vel.set(0, 0, 0); } } // shoved ashore: slip back
+    c.swim = h < -0.6 && c.pos.y < 0.2;
     let sp = c.swim ? c.swimSp * (sprint ? 1.4 : 1) : c.landSp * (sprint ? (c.faction === 'penguins' ? 1.75 : 1.5) : 1);
     const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; }
     c.sliding = sprint && !c.swim && l > 0.3 && c.faction === 'penguins';
     if (c.dash > 0) { c.dash -= dt; sp = 24; mx = Math.sin(c.yaw); mz = Math.cos(c.yaw); }
     const k = Math.min(1, dt * (c.swim ? 4 : c.sliding ? 3.5 : 10));
     c.vel.x += (mx * sp - c.vel.x) * k; c.vel.z += (mz * sp - c.vel.z) * k;
-    c.pos.x += c.vel.x * dt; c.pos.z += c.vel.z * dt;
-    w.collide(c.pos, c.r * 0.8);
+    const ox = c.pos.x, oz = c.pos.z; let sx = c.vel.x * dt, sz = c.vel.z * dt;
+    if (!c.swim && c.onGround && (sx || sz)) { // grades: slow the uphill part of the step, refuse it past CLIMB
+      w.normal(ox + sx, oz + sz, _n); const gl = Math.hypot(_n.x, _n.z), slope = gl / Math.max(_n.y, 0.01);
+      if (slope > 0.1) { const ux = -_n.x / gl, uz = -_n.z / gl, up = sx * ux + sz * uz;
+        if (up > 0) { const f = slope > CLIMB ? 0 : clamp(1.12 - slope, 0.28, 1); sx -= ux * up * (1 - f); sz -= uz * up * (1 - f); if (f < 0.6) { c.vel.x *= 0.9; c.vel.z *= 0.9; } }
+        else if (c.sliding) { const bo = Math.min(0.3, slope * 0.45); sx *= 1 + bo; sz *= 1 + bo; } }
+    }
+    c.pos.x = ox + sx; c.pos.z = oz + sz;
+    if (c.waterOnly) { const ok = (x, z) => { const nh = w.h(x, z); return nh < -0.55 || nh < h - 0.01; }; if (!ok(c.pos.x, c.pos.z)) { if (ok(c.pos.x, oz)) c.pos.z = oz; else if (ok(ox, c.pos.z)) c.pos.x = ox; else { c.pos.x = ox; c.pos.z = oz; } c.vel.x *= 0.6; c.vel.z *= 0.6; } }
+    w.collide(c.pos, Math.min(c.r * 0.8, 1.1));
     c.pos.x = clamp(c.pos.x, X0 + 25, -X0 - 25); c.pos.z = clamp(c.pos.z, Z0 + 25, -Z0 - 25);
     const b = this.mode && this.mode.bounds; if (b) { const dx = c.pos.x - b.x, dz = c.pos.z - b.z, d = Math.hypot(dx, dz); if (d > b.r) { c.pos.x = b.x + dx / d * b.r; c.pos.z = b.z + dz / d * b.r; } }
     const g = w.ground(c.pos.x, c.pos.z);
@@ -81,7 +95,7 @@ export class Game {
   }
 
   // ---------- combat ----------
-  muzzle(c, out) { const s = Math.sin(c.yaw), co = Math.cos(c.yaw); return out.set(c.pos.x + s * 0.9 - co * 0.25, c.pos.y + c.h * 0.58, c.pos.z + co * 0.9 + s * 0.25); }
+  muzzle(c, out) { const s = Math.sin(c.yaw), co = Math.cos(c.yaw); const k = c.sc; return out.set(c.pos.x + (s * 0.9 - co * 0.25) * k, c.pos.y + c.h * 0.58, c.pos.z + (co * 0.9 + s * 0.25) * k); }
   ballistic(from, to, speed, g, out) { // launch direction that lands on `to`
     const dx = to.x - from.x, dz = to.z - from.z, d = Math.hypot(dx, dz) || 0.01, dy = to.y - from.y, v2 = speed * speed, disc = v2 * v2 - g * (g * d * d + 2 * dy * v2);
     const th = disc < 0 ? Math.PI / 4 : Math.atan((v2 - Math.sqrt(disc)) / (g * d)); return out.set(dx / d * Math.cos(th), Math.sin(th), dz / d * Math.cos(th));
@@ -187,7 +201,7 @@ export class Game {
       }
     } else {
       c.pitch *= 0.9; ai.idle -= dt;
-      if (!ai.goal && ai.idle <= 0) ai.goal = (this.mode.botGoal && this.mode.botGoal(c)) || this.world.landPointNear(ai.home.x, ai.home.z, 2, ai.home.r);
+      if (!ai.goal && ai.idle <= 0) { ai.goal = (this.mode.botGoal && this.mode.botGoal(c)) || this.world.landPointNear(ai.home.x, ai.home.z, 2, ai.home.r); if (c.waterOnly && this.world.h(ai.goal.x, ai.goal.z) > -1) { ai.goal = this.world.waterPointNear(ai.goal.x, ai.goal.z, 160); if (!ai.goal) ai.idle = 2; } }
       if (ai.goal) {
         const dx = ai.goal.x - c.pos.x, dz = ai.goal.z - c.pos.z, d = Math.hypot(dx, dz);
         if (d < 3) { ai.goal = null; ai.idle = ai.rush ? 0 : Math.random() * 3; }
@@ -216,6 +230,7 @@ export class Game {
     if (Math.abs(v.speed) > max) v.speed *= 0.94;
     v.yaw -= steer * s.turn * dt * clamp(v.speed / 6, -1, 1);
     const ox = v.pos.x, oz = v.pos.z; v.pos.x += Math.sin(v.yaw) * v.speed * dt; v.pos.z += Math.cos(v.yaw) * v.speed * dt;
+    if (v.type !== 'manta') { const nh = w.h(v.pos.x, v.pos.z); if (nh > h + 0.001 && nh > 0) { const sl = w.slope(v.pos.x, v.pos.z); if (sl > 0.72) { v.pos.x = ox; v.pos.z = oz; v.speed *= 0.6; } else if (sl > 0.15) { const f = clamp(1.15 - sl * 1.25, 0.25, 1); v.pos.x = ox + (v.pos.x - ox) * f; v.pos.z = oz + (v.pos.z - oz) * f; if (f < 0.7) v.speed *= 0.985; } } }
     if (w.collide(v.pos, s.r)) v.speed *= 0.9;
     v.pos.x = clamp(v.pos.x, X0 + 25, -X0 - 25); v.pos.z = clamp(v.pos.z, Z0 + 25, -Z0 - 25);
     if (v.type === 'manta' && w.h(v.pos.x, v.pos.z) > 0.6) { v.pos.x = ox; v.pos.z = oz; v.speed = 0; }
@@ -247,14 +262,14 @@ export class Game {
         if (inp.take('reload')) this.startReload(p);
         if (inp.fire) { if (Math.abs(angDiff(this.camYaw, p.yaw)) < 0.5) this.fire(p, this.aim, ads ? 0.4 : 1); }
         if (inp.take('special')) this.useSpecial(p, this.aim);
-        if (inp.take('use')) { const nv = this.vehicles.find(x => !x.driver && x.pos.distanceTo(p.pos) < 4.5); if (nv) this.enterVehicle(p, nv); else this.mode.onUse && this.mode.onUse(); }
+        if (inp.take('use')) { const nv = this.vehicles.find(x => !x.driver && x.pos.distanceTo(p.pos) < 4.5); if (nv && !p.waterOnly) this.enterVehicle(p, nv); else this.mode.onUse && this.mode.onUse(); }
       }
       inp.take('jump');
     } else { this.camYaw += dt * 0.3; inp.edges = {}; }
     // camera
-    const vs = v ? VEH[v.type] : null, dist = v ? vs.cam : ads ? (wd.type === 'sniper' ? 1.4 : 2.6) : 5.4, fov = ads ? (wd.type === 'sniper' ? 24 : 48) : p.sliding ? 76 : 68;
+    const big = Math.max(1, p.h / 1.7), vs = v ? VEH[v.type] : null, dist = (v ? vs.cam : ads ? (wd.type === 'sniper' ? 1.4 : 2.6) : 5.4) * (v ? 1 : 0.5 + 0.5 * big), fov = ads ? (wd.type === 'sniper' ? 24 : 48) : p.sliding ? 76 : 68;
     if (Math.abs(this.camera.fov - fov) > 0.1) { this.camera.fov = lerp(this.camera.fov, fov, Math.min(1, dt * 10)); this.camera.updateProjectionMatrix(); }
-    const pivot = this.vPivot.set(p.pos.x, p.pos.y + (v ? 2.2 : p.h * 0.95), p.pos.z), rx = -Math.cos(this.camYaw), rz = Math.sin(this.camYaw), sh = v ? 0 : ads ? 0.55 : 0.85;
+    const pivot = this.vPivot.set(p.pos.x, p.pos.y + (v ? 2.2 : p.h * 0.95), p.pos.z), rx = -Math.cos(this.camYaw), rz = Math.sin(this.camYaw), sh = (v ? 0 : ads ? 0.55 : 0.85) * Math.sqrt(big);
     let D = dist; for (let s = 0.25; s <= 1.001; s += 0.125) { const t = dist * s; if (w.pointBlocked(pivot.x - dir.x * t + rx * sh, pivot.y - dir.y * t + 0.2, pivot.z - dir.z * t + rz * sh)) { D = Math.max(0.6, t - dist * 0.125 - 0.2); break; } }
     this.camDist = lerp(this.camDist || D, D, D < (this.camDist || D) ? 1 : Math.min(1, dt * 6));
     const cam = this.camera; cam.position.set(pivot.x - dir.x * this.camDist + rx * sh, pivot.y - dir.y * this.camDist + 0.35, pivot.z - dir.z * this.camDist + rz * sh);
@@ -316,7 +331,7 @@ export class Game {
     this.renderer.render(this.scene, this.camera);
   }
   updateProjs(dt) {
-    const w = this.world; let n = 0;
+    const w = this.world; let n = 0, n2 = 0;
     for (let i = this.projs.length - 1; i >= 0; i--) {
       const pr = this.projs[i], p = pr.p; pr.life -= dt; pr.v.y -= pr.g * dt;
       const ox = p.x, oy = p.y, oz = p.z; p.addScaledVector(pr.v, dt); let hit = null, done = pr.life <= 0;
@@ -332,9 +347,14 @@ export class Game {
         this.projs.splice(i, 1); continue;
       }
       if (pr.flame) pr.size += dt * 2.2;
-      _d.position.copy(p); const sp = pr.v.length(); _d.scale.set(pr.size, pr.size, pr.size + (pr.flame ? 0 : sp * 0.012)); _d.lookAt(p.x + pr.v.x, p.y + pr.v.y, p.z + pr.v.z); _d.updateMatrix();
+      _d.position.copy(p); const sp = pr.v.length(); _d.scale.set(pr.size, pr.size, pr.size + (pr.flame ? 0 : sp * 0.006)); _d.lookAt(p.x + pr.v.x, p.y + pr.v.y, p.z + pr.v.z); _d.updateMatrix();
       this.projMesh.setMatrixAt(n, _d.matrix); this.projMesh.setColorAt(n, _col.set(pr.col)); n++;
+      if (!pr.flame) { // dark rim + blue streak so white snowballs read against white snow
+        const st = pr.size + sp * 0.006; _d.scale.set(pr.size * 1.5 + 0.05, pr.size * 1.5 + 0.05, st * 1.12 + 0.08); _d.updateMatrix(); this.outMesh.setMatrixAt(n2, _d.matrix);
+        const tl = Math.min(sp * 0.05, 6) + pr.size * 2; _d.position.addScaledVector(pr.v, -tl * 0.5 / sp); _d.scale.set(pr.size * 0.75, pr.size * 0.75, tl); _d.updateMatrix(); this.trailMesh.setMatrixAt(n2, _d.matrix); n2++;
+      }
     }
+    this.outMesh.count = this.trailMesh.count = n2; this.outMesh.instanceMatrix.needsUpdate = true; this.trailMesh.instanceMatrix.needsUpdate = true;
     this.projMesh.count = n; this.projMesh.instanceMatrix.needsUpdate = true; this.projMesh.instanceColor.needsUpdate = true;
   }
   updateStrikes(dt) {

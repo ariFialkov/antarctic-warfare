@@ -23,13 +23,13 @@ export const FACTIONS = {
   seals: {
     name: 'Seals', tag: 'The Colony Teams', color: 0x23b8a8, css: '#23b8a8', playable: true,
     hp: 115, land: 0.92, swim: 1.35,
-    blurb: 'Elite amphibious special forces. Small teams, drones, and surprise landings from the surf.',
+    blurb: 'Elite amphibious special forces. Bigger and tougher than penguins, quick in the water, with drones and surprise landings from the surf.',
     home: 'blubber',
   },
   orcas: {
     name: 'Orcas', tag: 'The Pod Armada', color: 0x7a5cff, css: '#7a5cff', playable: true,
-    hp: 150, land: 0.8, swim: 1.6,
-    blurb: 'Rulers of the sea. Heavy, slow on land, devastating firepower and echolocation-guided war machines.',
+    hp: 150, land: 0.8, swim: 1.9,
+    blurb: 'Rulers of the sea. Huge, fast swimmers with devastating firepower. Cannot leave the water: they fight from canals, harbours and the open sea.',
     home: 'blackfin',
   },
   walrus: {

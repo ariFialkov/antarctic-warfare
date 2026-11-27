@@ -78,7 +78,9 @@ export class World {
     this.scene = scene; this.quality = quality; this.time = 0; this.colGrid = new Map();
     const n = NX * NZ; this.H = new Float32Array(n); this.kind = new Uint8Array(n); this.coast = new Float32Array(n); this.aux = new Float32Array(n);
     this.locs = LOCATIONS.map(l => { const [x, z] = toWorld(l.px, l.py); return { ...l, x, z, R: 45 + 22 * l.size }; });
-    for (const l of this.locs) { let nd = 1e9; for (const o of this.locs) if (o !== l) nd = Math.min(nd, Math.hypot(o.x - l.x, o.z - l.z)); l.full = l.R; l.R = Math.max(38, Math.min(l.R, nd * 0.42)); }
+    // seals spread out; orca towns are canal archipelagos that may merge with neighbouring orca towns
+    for (const l of this.locs) { let nd = 1e9; for (const o of this.locs) if (o !== l) nd = Math.min(nd, Math.hypot(o.x - l.x, o.z - l.z)); l.full = l.R; l.R = Math.max(38, Math.min(l.R * (l.f === 'seals' ? 1.3 : 1), nd * 0.42)); }
+    for (const l of this.locs) if (l.f === 'orcas') { let lim = l.full * 1.5; for (const o of this.locs) if (o.f !== 'orcas') lim = Math.min(lim, Math.hypot(o.x - l.x, o.z - l.z) - o.R * 1.65 - 45); l.R = Math.max(72, lim); l.arch = { r0: Math.max(27, l.R * 0.28), K: l.R > 105 ? 5 : l.R > 85 ? 4 : 3 }; }
     this.locById = Object.fromEntries(this.locs.map(l => [l.id, l]));
     const r = mulberry32(4242); this.nunataks = [];
     for (let i = 0; i < 400 && this.nunataks.length < 46; i++) { const px = 140 + r() * 1080, py = 90 + r() * 900, [inL, d] = polyInfo(COAST, px, py); if (inL && d * SCALE > 170 && this.locs.every(l => Math.hypot(l.px - px, l.py - py) * SCALE > 150)) this.nunataks.push({ px, py, r: 35 + r() * 60, h: 26 + r() * r() * 75 }); }
@@ -131,16 +133,27 @@ export class World {
     const info = {}, locs = this.locs;
     this._noLakes = true; for (const L of LAKES) { const [x, z] = toWorld(L.px, L.py); L.y = this.rawHeight(x, z) - 3; L.x = x; L.z = z; } this._noLakes = false;
     for (const l of locs) {
-      l.y = Math.max(this.rawHeight(l.x, l.z), 2.6);
+      l.y = l.arch ? 1.8 : Math.max(this.rawHeight(l.x, l.z), 2.6); if (l.f === 'seals') l.y = Math.min(l.y, 8);
       let best = 1e9; l.seaA = 0; for (let i = 0; i < 16; i++) { const a = i / 16 * 6.283; let s = 0; for (const d of [1.3, 1.9, 2.6]) s += this.rawHeight(l.x + Math.sin(a) * l.R * d, l.z + Math.cos(a) * l.R * d); if (s < best) { best = s; l.seaA = a; } }
       l.coastal = best / 3 < 0.5;
-      if (l.coastal && l.y < 7 && /Harbour|Wharf|Dock|Landing|Fishing|Fleet|Sea|Beachhead|Yard|Island|Works|Fortress|Bomber/.test(l.kind)) l.mole = { len: l.R * 2.35 }; // walkable breakwater
+      if (!l.arch && l.coastal && l.y < 8.5 && /Harbour|Wharf|Dock|Landing|Fishing|Fleet|Sea|Beachhead|Yard|Island|Works|Fortress|Bomber/.test(l.kind)) l.mole = { len: l.R * 2.35 }; // walkable breakwater
     }
     for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
       const x = X0 + i * CELL, z = Z0 + j * CELL, o = j * NX + i; let h = this.rawHeight(x, z, info), kind = info.kind;
+      { // orca archipelagos: central island, ring canal, radial canals between quay blocks, moat, channel to open sea
+        let best = null, bq = 1e9;
+        for (const l of locs) { if (!l.arch) continue; const dx = x - l.x, dz = z - l.z, lim = l.R * 4 + 20; if (Math.abs(dx) > lim || Math.abs(dz) > lim) continue; const dd = Math.hypot(dx, dz);
+          if (dd < l.R + 46 && dd / l.R < bq) { bq = dd / l.R; best = l; }
+          if (dd > l.R + 10) { const sx = Math.sin(l.seaA), sz = Math.cos(l.seaA), md = segDist(x, z, l.x + sx * (l.R + 10), l.z + sz * (l.R + 10), l.x + sx * l.R * 4, l.z + sz * l.R * 4); if (md < 20 && h > -3) { h = lerp(h, -3.2, smooth((20 - md) / 7)); if (md < 13) kind = SEA; } } }
+        if (best) { const l = best, A = l.arch, dx = x - l.x, dz = z - l.z, dd = Math.hypot(dx, dz), seg = 6.2832 / A.K;
+          let wet = (dd > A.r0 && dd < A.r0 + 22) || (dd > l.R && dd < l.R + 24);
+          if (!wet && dd >= A.r0 + 22 && dd <= l.R) { let da = ((Math.atan2(dx, dz) - l.seaA) % seg + seg) % seg; da = Math.min(da, seg - da); if (da * dd < 11.5) wet = true; }
+          const w2 = smooth((l.R + 46 - dd) / 22); h = lerp(h, wet ? -3.4 : 1.8, w2); if (w2 > 0.5) kind = wet ? SEA : LAND; }
+      }
       for (const l of locs) {
-        const dx = x - l.x, dz = z - l.z, reach = l.mole ? l.mole.len + 20 : l.R * 1.7; if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
-        const w = smooth((l.R * 1.65 - Math.hypot(dx, dz)) / (l.R * 0.65)); if (w > 0) { h = lerp(h, l.y, w); if (w > 0.5) kind = kind === SHELF ? SHELF : LAND; }
+        if (l.arch) continue; const F = l.f === 'seals' ? 2.3 : 1.65;
+        const dx = x - l.x, dz = z - l.z, reach = l.mole ? l.mole.len + 20 : l.R * (F + 0.05); if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+        const w = smooth((l.R * F - Math.hypot(dx, dz)) / (l.R * (F - 1))); if (w > 0) { h = lerp(h, l.y, w); if (w > 0.5) kind = kind === SHELF ? SHELF : LAND; }
         if (l.mole) { const md = segDist(x, z, l.x + Math.sin(l.seaA) * l.R * 0.95, l.z + Math.cos(l.seaA) * l.R * 0.95, l.x + Math.sin(l.seaA) * l.mole.len, l.z + Math.cos(l.seaA) * l.mole.len), mw = smooth((19 - md) / 9); if (mw > 0) { h = lerp(h, Math.min(l.y, 2.8), mw); if (mw > 0.5) kind = LAND; } }
       }
       this.H[o] = h; this.kind[o] = kind; this.coast[o] = info.d; this.aux[o] = info.aux;
@@ -282,6 +295,7 @@ export class World {
     for (let i = 0; i < 40; i++) { const a = rng() * 6.283, d = rMin + rng() * (rMax - rMin), px = clamp(x + Math.cos(a) * d, X0 + 40, -X0 - 40), pz = clamp(z + Math.sin(a) * d, Z0 + 40, -Z0 - 40); const p = { x: px, y: 0, z: pz }; if ((allowWater || this.h(px, pz) > 1) && !this.pointBlocked(px, this.h(px, pz) + 1, pz)) return p; }
     return { x, y: 0, z };
   }
+  waterPointNear(x, z, max = 420) { if (this.h(x, z) < -1.5) return { x, y: 0, z }; for (let d = 10; d <= max; d += 10) for (let i = 0; i < 12; i++) { const a = i * 0.5236 + d, px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d; if (this.h(px, pz) < -1.6 && Math.abs(px) < -X0 - 40 && Math.abs(pz) < -Z0 - 40) return { x: px, y: 0, z: pz }; } return null; }
   nearestLoc(x, z, filter) { let b = null, bd = 1e9; for (const l of this.locs) { if (filter && !filter(l)) continue; const d = Math.hypot(l.x - x, l.z - z); if (d < bd) { bd = d; b = l; } } return b; }
   update(dt, cam, focus) {
     this.time += dt; this.waterU.t.value = this.time; this.snowU.t.value = this.time; this.snowU.cam.value.copy(cam.position);

@@ -1,14 +1,15 @@
 // Core runtime: renderer, characters, combat, bots, vehicles, camera.
 import * as THREE from '../vendor/three.module.min.js';
 import { World, X0, Z0 } from './world.js';
-import { makeChar, setWeapon, makeVehicle } from './models.js';
+import { makeVehicle } from './models.js';
+import { makeChar } from './animals.js';
 import { FACTIONS, CLASSES, WEAPONS, SPECIALS, BOT_NAMES, clamp, lerp, pick } from './data.js';
 import { audio } from './audio.js';
 
 const V = () => new THREE.Vector3();
 const _a = V(), _b = V(), _c = V(), _n = V(), _d = new THREE.Object3D(), _col = new THREE.Color(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
 const angDiff = (a, b) => { let d = (a - b) % 6.2832; if (d > Math.PI) d -= 6.2832; if (d < -Math.PI) d += 6.2832; return d; };
-const CLIMB = 0.95, BODY = { seals: 1.3, walrus: 1.45, orcas: 2.1 }; // steepest walkable grade; body scale per faction
+const CLIMB = 0.95, BODY = { seals: 1.3, walrus: 1.4, orcas: 2.1 }; // steepest walkable grade; body scale per faction
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 const PREF = { melee: 0, shotgun: 11, flame: 9, auto: 26, semi: 32, sniper: 75, launcher: 38 };
 const VEH = { waddle: { max: 30, acc: 16, turn: 1.9, r: 1.3, cam: 7.5, resist: 0.8, seat: 0.75 }, gentoo: { max: 13, acc: 7, turn: 1.1, r: 2.6, cam: 11, resist: 0.3, seat: -9 }, manta: { max: 26, acc: 12, turn: 1.6, r: 1.8, cam: 8, resist: 0.7, seat: 0.5 } };
@@ -52,19 +53,19 @@ export class Game {
     if (wet && this.world.h(o.x, o.z) > -1) { const wp = this.world.waterPointNear(o.x, o.z); if (wp) { o.x = wp.x; o.z = wp.z; } }
     model.root.scale.setScalar(sc);
     const c = { faction: o.faction, cls: def, team: o.team ?? o.faction, name: o.name || this.botName(), isPlayer: !!o.isPlayer, pos: V().set(o.x, 0, o.z), vel: V(), yaw: o.yaw || Math.random() * 6.28, pitch: 0,
-      maxHp: Math.round(F.hp * def.hp), h: m.h * sc, r: m.r * sc, sc, waterOnly: wet, model, weapons: def.w.map(id => ({ id, def: WEAPONS[id], ammo: WEAPONS[id].mag })), cur: 0, cd: 0, reload: 0, specialCd: 3, alive: true, deadT: 0,
+      maxHp: Math.round(F.hp * def.hp), h: m.h * sc, r: m.r * sc, len: m.len * sc, sc, waterOnly: wet, model, weapons: def.w.map(id => ({ id, def: WEAPONS[id], ammo: WEAPONS[id].mag })), cur: 0, cd: 0, reload: 0, specialCd: 3, alive: true, deadT: 0,
       dmgMul: 1, accMul: 1, resist: 1, floorHp: 0, onGround: true, swim: false, sliding: false, lastHit: -99, lastShot: -99, recoil: 0, swing: 0, flash: 0, inv: 0, dash: 0, vehicle: null, kills: 0, tag: o.tag || null,
       landSp: 6.4 * F.land * def.speed, swimSp: 5 * F.swim * def.speed };
     c.hp = c.maxHp; c.pos.y = this.world.ground(o.x, o.z);
     if (!c.isPlayer) c.ai = { think: Math.random() * 0.3, target: null, forced: null, los: false, react: 0, goal: null, idle: Math.random() * 2, home: o.home || { x: o.x, z: o.z, r: 30 }, strafe: 0, strafeT: 0, burst: 3, pause: 0, errY: 0, errP: 0, sight: 70, stuckT: 0, lastX: o.x, lastZ: o.z, passive: !!o.passive, pref: 30 };
-    setWeapon(model, c.weapons[0].id); if (c.ai) this.botLoadout(c);
+    model.setWeapon(c.weapons[0].id); if (c.ai) this.botLoadout(c);
     this.scene.add(model.root); this.chars.push(c); this.animate(c, 0);
     return c;
   }
   botLoadout(c) { const w = c.weapons[c.cur].def; c.ai.pref = PREF[w.type] * (0.8 + Math.random() * 0.4); c.ai.sight = w.type === 'sniper' ? 130 : 75; }
   remove(c) { const i = this.chars.indexOf(c); if (i >= 0) this.chars.splice(i, 1); this.scene.remove(c.model.root); }
   eye(c, out) { return out.set(c.pos.x, c.pos.y + c.h * 0.78, c.pos.z); }
-  switchWeapon(c, i) { if (i === c.cur || !c.weapons[i]) return; c.cur = i; c.reload = 0; c.cd = Math.max(c.cd, 0.3); setWeapon(c.model, c.weapons[i].id); if (c.ai) this.botLoadout(c); }
+  switchWeapon(c, i) { if (i === c.cur || !c.weapons[i]) return; c.cur = i; c.reload = 0; c.cd = Math.max(c.cd, 0.3); c.model.setWeapon(c.weapons[i].id); if (c.ai) this.botLoadout(c); }
   startReload(c) { const s = c.weapons[c.cur]; if (c.reload > 0 || s.def.type === 'melee' || s.ammo >= s.def.mag) return; c.reload = s.def.reload; }
 
   move(c, dt, mx, mz, sprint, jump) {
@@ -290,21 +291,11 @@ export class Game {
 
   // ---------- per-frame ----------
   animate(c, dt) {
-    const m = c.model, sp = Math.hypot(c.vel.x, c.vel.z), moving = sp > 0.6;
-    if (!c.alive) { c.deadT += dt; m.tilt.rotation.z = Math.min(1.5, c.deadT * 5); m.tilt.rotation.x *= 0.9; m.root.position.set(c.pos.x, c.pos.y + 0.2 - Math.max(0, c.deadT - 3) * 0.6, c.pos.z); return; }
-    if (moving) m.phase += dt * (3 + sp * 1.2);
-    const prone = c.swim ? 1.2 : c.sliding ? 1.32 : 0, gallop = moving && !c.swim && c.faction !== 'penguins' && c.faction !== 'albatross';
-    m.tilt.rotation.x = lerp(m.tilt.rotation.x, prone + (gallop ? 0.12 + Math.sin(m.phase * 1.4) * 0.1 : 0), Math.min(1, dt * 9));
-    m.tilt.rotation.z = lerp(m.tilt.rotation.z, moving && !prone && !gallop ? Math.sin(m.phase) * 0.14 : 0, Math.min(1, dt * 12));
-    m.tilt.position.y = prone ? 0.28 + (c.swim ? Math.sin(this.time * 2 + m.phase) * 0.06 - 0.25 : 0) : moving ? Math.abs(Math.sin(m.phase)) * 0.07 : Math.sin(this.time * 2 + m.phase) * 0.012;
-    c.recoil = Math.max(0, c.recoil - dt * 9); c.swing = Math.max(0, c.swing - dt); c.flash = Math.max(0, c.flash - dt * 6);
-    const armed = !prone || this.time - c.lastShot < 0.6;
-    m.flR.rotation.x = lerp(m.flR.rotation.x, armed ? -1.25 - c.recoil * 0.15 : 0.5 + Math.sin(m.phase * 2) * 0.4, Math.min(1, dt * 12)); m.flL.rotation.x = lerp(m.flL.rotation.x, armed ? -1.05 : 0.5 - Math.sin(m.phase * 2) * 0.4, Math.min(1, dt * 12));
-    m.flR.rotation.z = armed ? -0.35 : 0.5; m.flL.rotation.z = armed ? 0.7 : -0.5;
-    m.gun.rotation.x = -clamp(c.pitch, -0.9, 0.9) - prone * 0.9 - (c.swing > 0 ? Math.sin(c.swing / 0.28 * Math.PI) * 1.3 : 0); m.gun.position.z = m.metrics.sh[2] + 0.34 - c.recoil * 0.08;
-    m.gun.visible = armed; m.torso.scale.setScalar(1 + c.flash * 0.1);
-    if (c.vehicle) { const s = VEH[c.vehicle.type].seat; m.root.visible = s > -5; m.root.position.set(c.pos.x, c.pos.y + s, c.pos.z); m.tilt.rotation.x = 0.3; }
-    else m.root.position.copy(c.pos);
+    const m = c.model; c.recoil = Math.max(0, c.recoil - dt * 9); c.swing = Math.max(0, c.swing - dt); c.flash = Math.max(0, c.flash - dt * 6);
+    if (!c.alive) c.deadT += dt;
+    m.animate(c, dt, this.time);
+    if (c.vehicle) { const s = VEH[c.vehicle.type].seat; m.root.visible = s > -5; m.root.position.set(c.pos.x, c.pos.y + s, c.pos.z); }
+    else m.root.position.set(c.pos.x, c.pos.y - (c.alive ? 0 : Math.max(0, c.deadT - 3) * 0.6), c.pos.z);
     m.root.rotation.y = c.yaw;
   }
   frame(dt) {
@@ -341,6 +332,7 @@ export class Game {
         if (!o.alive || o === pr.owner || (pr.owner && !this.hostile(pr.owner, o))) continue;
         const cx = o.pos.x - ox, cy = o.pos.y + o.h * 0.5 - oy, cz = o.pos.z - oz, t = clamp((cx * sx + cy * sy + cz * sz) / sl2, 0, 1), dx = cx - sx * t, dy = (cy - sy * t) * 0.75, dz = cz - sz * t, r = o.r + pr.size * 0.5 + (pr.owner && pr.owner.isPlayer ? 0.18 : 0);
         if (dx * dx + dy * dy + dz * dz < r * r) { hit = o; p.set(ox + sx * t, oy + sy * t, oz + sz * t); break; }
+        if (o.len) { const lx = Math.sin(o.yaw) * o.len, lz = Math.cos(o.yaw) * o.len; let h2 = false; for (const e of [-1.7, -0.85, 0.85, 1.7]) { const ax = cx + lx * e, az = cz + lz * e, t2 = clamp((ax * sx + cy * sy + az * sz) / sl2, 0, 1), bx = ax - sx * t2, by = (cy - sy * t2) * 0.75, bz = az - sz * t2; if (bx * bx + by * by + bz * bz < r * r * 0.8) { h2 = true; p.set(ox + sx * t2, oy + sy * t2, oz + sz * t2); break; } } if (h2) { hit = o; break; } }
       }
       if (!hit && (w.pointBlocked(p.x, p.y, p.z) || w.pointBlocked(ox + sx * 0.5, oy + sy * 0.5, oz + sz * 0.5) || p.y < -0.3)) done = true;
       if (hit || done) {

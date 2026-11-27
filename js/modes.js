@@ -20,7 +20,7 @@ export function rollFate(kind) {
 
 function revive(g, c, x, z) {
   if (c.waterOnly) { const wp = g.world.waterPointNear(x, z); if (wp) { x = wp.x; z = wp.z; } }
-  c.alive = true; c.hp = c.maxHp; c.pos.set(x, g.world.ground(x, z), z); c.vel.set(0, 0, 0); c.deadT = 0; c.inv = 2.5; c.reload = 0; c.model.tilt.rotation.set(0, 0, 0); c.model.root.visible = true;
+  c.alive = true; c.hp = c.maxHp; c.pos.set(x, g.world.ground(x, z), z); c.vel.set(0, 0, 0); c.deadT = 0; c.inv = 2.5; c.reload = 0; c.model.reset(); c.model.root.visible = true;
   for (const w of c.weapons) w.ammo = w.def.mag;
 }
 const dist2 = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);

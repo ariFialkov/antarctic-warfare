@@ -23,7 +23,8 @@ Then open `http://localhost:8080`. To install as an app, host it over HTTPS (any
 | `js/towns.js` | Settlements: faction architecture, landmarks, street furniture, harbours, perimeter walls |
 | `js/scatter.js` | Wilderness dressing (wrecks, camps, huts, icebergs, road furniture), baked per map sector |
 | `js/kit.js` | Bakes many primitives into single vertex-coloured meshes |
-| `js/models.js` | Procedural animals, weapons and vehicles |
+| `js/animals.js` | Skinned animal models: lofted bodies on skeletons, blended procedural animation, weapon-grip IK |
+| `js/models.js` | Procedural weapons and vehicles |
 | `js/game.js` | Renderer, characters, combat, bot AI, vehicles, camera |
 | `js/modes.js` | Open World, Skirmish, Battle Royale and the outcome ("fate") system |
 | `js/ui.js` | Menus, HUD, minimap, save slots (localStorage) |

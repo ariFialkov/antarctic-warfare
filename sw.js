@@ -1,5 +1,5 @@
 // Offline cache. Bump VERSION on every release so clients pick up new files.
-const VERSION = 'aw-v3';
+const VERSION = 'aw-v4';
 const FILES = ['./', 'index.html', 'css/style.css', 'manifest.webmanifest', 'vendor/three.module.min.js',
   'js/main.js', 'js/game.js', 'js/world.js', 'js/kit.js', 'js/towns.js', 'js/scatter.js', 'js/models.js', 'js/modes.js', 'js/ui.js', 'js/input.js', 'js/audio.js', 'js/data.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];

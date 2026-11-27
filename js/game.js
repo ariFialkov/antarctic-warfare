@@ -351,7 +351,7 @@ export class Game {
       this.projMesh.setMatrixAt(n, _d.matrix); this.projMesh.setColorAt(n, _col.set(pr.col)); n++;
       if (!pr.flame) { // dark rim + blue streak so white snowballs read against white snow
         const st = pr.size + sp * 0.006; _d.scale.set(pr.size * 1.5 + 0.05, pr.size * 1.5 + 0.05, st * 1.12 + 0.08); _d.updateMatrix(); this.outMesh.setMatrixAt(n2, _d.matrix);
-        const tl = Math.min(sp * 0.05, 6) + pr.size * 2; _d.position.addScaledVector(pr.v, -tl * 0.5 / sp); _d.scale.set(pr.size * 0.75, pr.size * 0.75, tl); _d.updateMatrix(); this.trailMesh.setMatrixAt(n2, _d.matrix); n2++;
+        pr.trav = (pr.trav || 0) + sp * dt; const tl = Math.max(0.001, Math.min(sp * 0.05 + pr.size * 2, 6, pr.trav - pr.size)); // never reaches back past the muzzle _d.position.addScaledVector(pr.v, -tl * 0.5 / sp); _d.scale.set(pr.size * 0.75, pr.size * 0.75, tl); _d.updateMatrix(); this.trailMesh.setMatrixAt(n2, _d.matrix); n2++;
       }
     }
     this.outMesh.count = this.trailMesh.count = n2; this.outMesh.instanceMatrix.needsUpdate = true; this.trailMesh.instanceMatrix.needsUpdate = true;
